@@ -1,25 +1,11 @@
 [project]
 name = 'freeze-pr-links'
 version = '0.0.0'
-description = 'freeze-pr-links'
+description = "Rewrite a merged pull request's head-branch links as commit permalinks"
 readme = 'README.md'
 authors = [{ name = 'Michael I Chen', email = 'michael.chen.0@gmail.com' }]
 requires-python = '>=3.13'
-dependencies = [
-    'loguru>=0.7.3',
-    'pandera[polars]>=0.34.1',
-    'plotly>=7.1.0',
-    'polars>=1.44.2',
-    'pydantic-settings>=2.16.0',
-    'pydantic>=2.14.1',
-    'pyyaml>=6.0.2',
-    'rich-argparse>=1.8.0',
-    'typer>=0.27.3',
-    'yapic-json>=1.9.5',
-]
-
-# [project.scripts]
-# example-script = 'freeze_pr_links.bin.example_script:run_script'
+dependencies = []
 
 [dependency-groups]
 dev = [
@@ -45,7 +31,6 @@ enable_error_code        = ['ignore-without-code', 'redundant-expr', 'truthy-boo
 exclude                  = '.ipynb$'
 local_partial_types      = true
 mypy_path                = 'src'
-plugins                  = ['pydantic.mypy']
 pretty                   = true
 show_column_numbers      = true
 show_error_code_links    = true

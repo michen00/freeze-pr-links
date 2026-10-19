@@ -116,12 +116,7 @@ This includes login, logout, and token refresh endpoints.
 - **Code Style:** Enforced by `ruff` and `mypy`.
 - **Verification:** Run `make check` to perform final checks (formatting, linting, type checking, pre-commit hooks, and tests) after making code changes.
 - **Onboarding:** Most projects should include a `make demo` target near the top of the Makefile to provide a convenient quickstart.
-- **Library Preferences:**
-  - **CLI:** Use `typer` with `rich-argparse` for command-line interfaces.
-  - **Data Processing:** Prefer `polars` over `pandas` for data manipulation.
-  - **Logging:** Use structured logging with consistent, parseable output.
-  - **JSON:** Use `yapic-json` for high-performance JSON processing.
-  - **Progress Indicators:** Use `tqdm` (or `rich.progress`) for long-running tasks where performance allows.
+- **Dependencies:** The package uses only the standard library. Do not add a runtime dependency.
 - **CLI Guidelines:**
   - **Help:** Ensure all CLI tools have a helpful `--help` message.
   - **Colors:** Use colors where helpful.
@@ -140,15 +135,6 @@ This includes login, logout, and token refresh endpoints.
 - **Type Hints:**
   - Use modern type hints (Python 3.12+) for all function signatures (e.g., `list[str]`, `str | None`).
   - Annotate class attributes and significant variables.
-  - **Pydantic Types:** Utilize numeric convenience types from Pydantic (e.g., `NegativeInt`, `NonPositiveFloat`) where appropriate to enforce constraints at the type level.
-  - **Annotated Constraints:** Use `typing.Annotated` with `pydantic.Field` to define reusable constrained types.
-
-    ```python
-    # Examples of useful patterns (not included by default):
-    FinitePositiveFloat = Annotated[FiniteFloat, Field(gt=0.0)]
-    Probability = Annotated[NonNegativeFloat, Field(le=1.0)]
-    NonEmptyStr = Annotated[str, Field(min_length=1)]
-    ```
 
 - **Documentation:**
   - **Syncing:** Ensure `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, `.github/instructions/CI.instructions.md`, and `README.md` are kept updated and synced with code changes.

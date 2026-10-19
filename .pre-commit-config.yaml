@@ -174,10 +174,7 @@ repos:
         args: ['--config-file=pyproject.toml', '--install-types', '--non-interactive']
         additional_dependencies:
           - nox[uv]
-          - pydantic
           - pytest
-          - types-pyyaml
-          - typer
         stages: [pre-push]
 
   # configuration validation

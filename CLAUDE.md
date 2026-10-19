@@ -106,13 +106,9 @@ This includes login, logout, and token refresh endpoints.
 - **Enforcement:** `ruff` (linting/formatting) and `mypy` (type checking)
 - **Verification:** Run `make check` before committing to ensure all checks pass
 
-### Library Preferences
+### Dependencies
 
-- **CLI:** `typer` with `rich-argparse` for command-line interfaces
-- **Data Processing:** `polars` over `pandas` for data manipulation
-- **Logging:** Use structured logging with consistent, parseable output
-- **JSON:** `yapic-json` for high-performance JSON processing
-- **Progress Indicators:** `tqdm` or `rich.progress` for long-running tasks
+The package uses only the standard library. Do not add a runtime dependency.
 
 ### CLI Guidelines
 
@@ -137,18 +133,6 @@ This includes login, logout, and token refresh endpoints.
 
 - Use modern type hints (Python 3.12+) for all function signatures: `list[str]`, `str | None`, etc.
 - Annotate class attributes and significant variables.
-- **Pydantic Types:** Use numeric convenience types (`NegativeInt`, `NonPositiveFloat`) to enforce constraints.
-- **Annotated Constraints:** Use `typing.Annotated` with `pydantic.Field` for reusable constrained types.
-
-  ```python
-  from typing import Annotated
-  from pydantic import Field, NonNegativeFloat, FiniteFloat
-
-  # Examples of useful patterns:
-  FinitePositiveFloat = Annotated[FiniteFloat, Field(gt=0.0)]
-  Probability = Annotated[NonNegativeFloat, Field(le=1.0)]
-  NonEmptyStr = Annotated[str, Field(min_length=1)]
-  ```
 
 ### Documentation
 
