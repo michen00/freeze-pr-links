@@ -100,7 +100,7 @@ repo="$(gh repo view --json nameWithOwner --jq .nameWithOwner)" ||
 # past it.
 waiting_run() {
   gh run list --workflow="$1" --status waiting --limit 1 \
-    --json databaseId,displayTitle,event,headBranch,url ||
+    --json databaseId,displayTitle,event,headBranch,headSha,url ||
     die "Could not list $1 runs."
 }
 
@@ -113,9 +113,26 @@ publish_tag() {
 }
 
 # publish_origin <waiting-json> -- prints "<event> <branch>" for the run: what
-# started it, and the ref its workflow file was read from.
+# started it, and the name of the ref its workflow file was read from.
 publish_origin() {
   printf '%s' "$1" | jq -r '.[0] | "\(.event) \(.headBranch)"'
+}
+
+# require_tag_commit <tag> <waiting-json> <run-url> -- prints the commit the tag
+# points at, and refuses unless the run started on that commit. The origin
+# check above cannot do this alone: `headBranch` is a bare ref name, so a
+# branch named like the tag reads the same, and its workflow file is whatever
+# that branch carries. A run whose head commit is the tag's commit read the
+# tag's own workflow file, whatever the ref is called.
+require_tag_commit() {
+  # refs/tags/ because a bare name also matches a branch, whose tip is not
+  # what the run checks out.
+  tag_commit="$(gh api "repos/$repo/commits/refs/tags/$1" --jq .sha)" ||
+    die "Tag $1 does not resolve to a commit, so Release Publish would fail: $3. Reject it on GitHub, then run this again."
+  run_commit="$(printf '%s' "$2" | jq -r '.[0].headSha // empty')"
+  [ "$run_commit" = "$tag_commit" ] ||
+    die "Release Publish for $1 started on commit ${run_commit:-<none>}, not on $tag_commit, which the tag points at: $3. Reject it on GitHub, then run this again."
+  printf '%s\n' "$tag_commit"
 }
 
 # check_pending <run-id> -- refuses unless the caller can approve every
@@ -186,6 +203,7 @@ wait_for_publish() {
         die "Release Publish for $found_tag is waiting ahead of $1: $publish_url. Approve or reject it, then run this again."
       [ "$(publish_origin "$found")" = "workflow_dispatch $1" ] ||
         die "Release Publish for $1 is waiting, but it was not dispatched on its tag as Release Tag does: $publish_url. Reject it on GitHub, then run this again."
+      require_tag_commit "$1" "$found" "$publish_url" > /dev/null || exit 1
       return 0
     fi
 
@@ -265,10 +283,7 @@ if [ -n "$publish_id" ]; then
       ;;
   esac
 
-  # refs/tags/ because a bare name also matches a branch, whose tip is not
-  # what the run checks out.
-  commit="$(gh api "repos/$repo/commits/refs/tags/$tag" --jq .sha)" ||
-    die "Tag $tag does not resolve to a commit, so Release Publish would fail: $publish_url. Reject it on GitHub, then run this again."
+  commit="$(require_tag_commit "$tag" "$publish_waiting" "$publish_url")" || exit 1
 
   check_pending "$publish_id"
 

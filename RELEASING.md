@@ -23,7 +23,7 @@ make release-status   # latest tag, any open release PR, any run awaiting approv
 make release-approve  # approve the waiting runs after confirming what will be tagged
 ```
 
-Both read the repository through `gh` and need no other local state. `make release-approve` does nothing when no run is waiting, rather than guessing which run you meant. It approves a Release Publish run only when the run started on the tag it names, dispatched there as Release Tag does or started by a push of the tag, because the publish job also holds the release key.
+Both read the repository through `gh` and need no other local state. `make release-approve` does nothing when no run is waiting, rather than guessing which run you meant. It approves a Release Publish run only when the run started on the tag it names, dispatched there as Release Tag does or started by a push of the tag, and on the commit that tag points at, because the publish job also holds the release key and a branch can carry the tag's name with a workflow of its own.
 
 ## Why Release PR sometimes does nothing
 
