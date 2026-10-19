@@ -10,6 +10,14 @@ updates:
         update-types: [major]
       uv-minor-patch:
         update-types: [minor, patch]
+    # Named in every entry, because without it Dependabot takes its title style
+    # from the repository's history: a history with no Conventional Commits yet
+    # gets `Bump ...`, which the PR checks let through for bots. The case of
+    # `bump` still comes from the newest Dependabot commit on main.
+    commit-message:
+      prefix: build
+      prefix-development: build
+      include: scope
     cooldown:
       semver-major-days: 30
   # Dependabot owns hook bumps. pre-commit.ci is left as a slow backstop via
@@ -23,6 +31,10 @@ updates:
     groups:
       pre-commit:
         patterns: ['*']
+    commit-message:
+      prefix: build
+      prefix-development: build
+      include: scope
     cooldown:
       default-days: 7
   - package-ecosystem: github-actions
@@ -39,6 +51,10 @@ updates:
       # its own release, so pinning the action pins git-cliff with it. Was
       # re-pinned to @v2.85.4 in #149 and had to be reverted.
       - dependency-name: taiki-e/install-action
+    commit-message:
+      prefix: build
+      prefix-development: build
+      include: scope
     cooldown:
       # default-days only. GitHub rejects the semver-* keys for this ecosystem --
       # "not supported for the package ecosystem 'github-actions'" -- and an
