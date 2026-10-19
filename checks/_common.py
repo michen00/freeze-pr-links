@@ -1,9 +1,9 @@
 """Shared validation helpers for the deterministic PR checks.
 
-These helpers embody the repository's governing rule: a tool's action may never be
-stronger than its detection is certain. Heuristic or ambiguous problems are therefore
-always warnings, which advise but never block. An exact detection is permitted to block
-but is not obliged to: a plan identifier is matched exactly and still only advises.
+A finding is an error, which blocks, or a warning, which advises. A finding is an error
+only when its detection is exact, so a heuristic or ambiguous finding is always a
+warning. An exact detection may still advise: a plan identifier is matched exactly and
+only advises.
 """
 
 from __future__ import annotations
@@ -45,15 +45,15 @@ CONVENTIONAL_TYPES = (
 
 _CONVENTIONAL = re.compile(
     r'^(?:' + '|'.join(CONVENTIONAL_TYPES) + r')'
-    r'(?:\([a-z0-9._/-]+\))?!?: (?P<subject>.+)$'
+    r'(?:\([^)]+\))?!?: (?P<subject>.+)$'
 )
 
-# A title and a commit subject answer to this one maximum. 50 is git's own number:
+# One maximum, for a title as typed and a commit subject alike, and 50 is git's own:
 # git-commit(1) asks for "a single short (no more than 50 characters) line summarizing
-# the change". The " (#N)" a squash merge appends is GitHub's rather than the author's,
-# so it is not counted: a 50-character title lands at 58, inside the 72 where GitHub
+# the change". The `" (#123)"` a squash merge appends to a title is GitHub's rather than
+# the author's, and a title at 50 still lands inside the 72 characters where GitHub
 # truncates a subject. SUBJECT_MAX_LENGTH rebinds it for a repository that answers to
-# another house rule (gitlint ships 72 and commitlint 100), or turns it off.
+# another house rule: gitlint defaults to 72 and commitlint to 100.
 SUBJECT_MAX_DEFAULT = 50
 
 _MAX_LENGTH_VARIABLE = 'SUBJECT_MAX_LENGTH'
@@ -89,10 +89,15 @@ _NON_IMPERATIVE = frozenset(
 
 _PLAN_ID = re.compile(r'\b(?:F\d+|S\d+|Phase\s*\d+|Slice\s*\w+)\b')
 
+# The Jira key CONTRIBUTING.md places straight after the colon, as in
+# `feat: [PLT-12] add a rule`. The first word is read after it, so that a ticketed
+# subject answers to the same case and mood rules as any other.
+_TICKET_KEY = re.compile(r'^\[[A-Z][A-Z0-9]*-[0-9]+\] ')
+
 
 @dataclass(slots=True)
 class Findings:
-    """Result of a check: errors block, warnings advise (the action-strength rule)."""
+    """Result of a check: errors block, warnings advise."""
 
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -115,54 +120,45 @@ class Findings:
         Workflow commands are read from stdout, so the annotation form goes there
         while a local run keeps the stream and the wording it always had.
         """
-        if os.environ.get('GITHUB_ACTIONS'):
+        if os.environ.get('GITHUB_ACTIONS', ''):
             print(f'::{severity}::{message}')
         else:
             print(f'{severity}: {message}', file=sys.stderr)
 
-    def _record(self) -> None:
-        """Append the warnings to the file named by ``PR_WARNINGS_FILE``, if any.
+    def _record_to(self, env_var: str, items: list[str], *, label: str) -> None:
+        """Append `items` to the file the environment variable `env_var` names, if any.
 
-        Each check step names its own file, so the stem identifies whichever check
-        raised what the file holds and the upsert step can group by it without
-        Findings ever learning about labels. Absent the variable -- every local
-        run -- this does nothing, and a clean check writes no file at all, so the
-        comment step never renders a heading with nothing under it.
-
-        Recording is a convenience; the raw job log `_publish` writes to is the
-        durable record -- GitHub renders at most ten annotations per level per
-        step, so a high-warning check truncates on the Checks tab and the run
-        summary while the log keeps every line. So a filesystem problem here --
-        a bad permission, a full disk, a path component that already exists as
-        a file -- is reported as a warning rather than raised, and never turns
-        an otherwise-clean, warnings-only check into a hard failure.
+        pr-mechanical-checks.yml names one file per check, under PR_WARNINGS_FILE and
+        PR_ERRORS_FILE, and hands them to pr-advisory-comment.yml, which posts them on
+        the pull request; its gate step also folds the errors into its own failure
+        message. Without the variable -- every local run -- nothing is written, and a
+        check with nothing to report writes no file. The log `_publish` writes is the
+        durable record, so a failed write is reported as a warning, never raised: it
+        must not turn a clean check red.
         """
-        target = os.environ.get('PR_WARNINGS_FILE', '').strip()
-        if not target or not self.warnings:
+        target = os.environ.get(env_var, '').strip()
+        if not target or not items:
             return
         path = Path(target)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open('a', encoding='utf-8') as handle:
-                handle.writelines(f'{warning}\n' for warning in self.warnings)
+                handle.writelines(f'{item}\n' for item in items)
         except OSError as error:
-            self._publish('warning', f'could not record warnings to {path}: {error}')
+            self._publish('warning', f'could not record {label} to {path}: {error}')
 
     def emit(self, ok_message: str) -> int:
-        """Print findings, record warnings via `_record`, and return an exit code.
+        """Print and record the findings, and return an exit code: 0 unless one blocks.
 
-        The filesystem write is a real side effect a caller reading only this
-        docstring should know about, not just the printed and annotated forms.
-
-        Returns:
-            The process exit code: 0 when there are no errors, 1 otherwise.
+        Recording writes the files PR_WARNINGS_FILE and PR_ERRORS_FILE name, when set.
         """
         publish = self._publish
         for warning in self.warnings:
             publish('warning', warning)
         for error in self.errors:
             publish('error', error)
-        self._record()
+        self._record_to('PR_WARNINGS_FILE', self.warnings, label='warnings')
+        self._record_to('PR_ERRORS_FILE', self.errors, label='errors')
         if self.ok:
             suffix = ' (with warnings)' if self.warnings else ''
             print(f'{ok_message}{suffix}')
@@ -182,9 +178,6 @@ def parse_max_length(setting: int | str) -> int | None:
     A setting is a positive whole number, or `off` to leave the length unchecked; `none`
     and `false` mean `off` too, and case and surrounding spaces do not matter.
 
-    Returns:
-        The maximum as an integer, or None for `off`, `none` or `false`.
-
     Raises:
         ValueError: The setting is neither a positive whole number nor `off`.
     """
@@ -203,9 +196,6 @@ def max_length_argument(text: str) -> str:
     An unusable value is a usage error naming the flag, rather than the fallback an
     unusable SUBJECT_MAX_LENGTH gets: the person who typed it is there to read it.
 
-    Returns:
-        The value as typed, for check_subject to resolve.
-
     Raises:
         argparse.ArgumentTypeError: parse_max_length rejects the value.
     """
@@ -219,17 +209,13 @@ def max_length_argument(text: str) -> str:
 def subject_max_length(
     explicit: int | str | None = None, *, environ: Mapping[str, str] | None = None
 ) -> int | None:
-    """Return how many characters a subject line may spend, most specific source first.
+    """Return the number of characters a subject line may spend, or None if unchecked.
 
-    An argument beats the ``SUBJECT_MAX_LENGTH`` environment variable, and the variable
-    beats SUBJECT_MAX_DEFAULT; parse_max_length reads either. An unusable variable is
-    ignored rather than raised on: this runs as a gate on every pull request, and a typo
-    in a repository variable should not fail all of them with a traceback that names the
-    variable instead of the title.
-
-    Returns:
-        The maximum from the argument when one is given, else from the variable when it
-        is usable, else the default; None when the setting leaves the length unchecked.
+    An argument beats the environment, and the environment beats the default; either is
+    read by parse_max_length. An unusable variable is ignored rather than raised on:
+    this runs as a gate on every pull request, and a typo in a repository variable
+    should not fail all of them with a traceback that names the variable instead of the
+    title.
 
     Raises:
         ValueError: The argument is neither a positive whole number nor `off`.
@@ -248,13 +234,9 @@ def check_subject(
 ) -> Findings:
     """Validate one Conventional Commit subject line against the conventions.
 
-    These are the rules that govern every subject, a commit's as much as a title's. The
-    maximum length is one of them, resolved from ``max_length`` by subject_max_length,
+    These are the rules that govern every subject, a commit's as much as a title's. A
+    title and a commit subject answer to one maximum, resolved by subject_max_length,
     and with the length unchecked every other rule still applies.
-
-    Returns:
-        Errors for violations that are certain and warnings for heuristic ones; both are
-        empty when the subject passes.
     """
     found = Findings()
     maximum = subject_max_length(max_length)
@@ -269,7 +251,7 @@ def check_subject(
     subject = match.group('subject')
 
     # Deterministic and unambiguous -> errors (block).
-    first_word = subject.split(' ', 1)[0]
+    first_word = _TICKET_KEY.sub('', subject, count=1).split(' ', 1)[0]
     if maximum is not None and len(subject_line) > maximum:
         found.errors.append(
             f'{label}: {len(subject_line)} chars exceeds hard max {maximum}'

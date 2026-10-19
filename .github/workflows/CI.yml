@@ -24,25 +24,31 @@ env:
   # context cannot be built from an expression.
   PYTHON_VERSION: '3.13'
 
-# A note on `astral-sh/setup-uv@v9.0.0` below, which is pinned to an exact patch
-# while every other action here floats on its major: upstream stopped publishing
-# rolling major tags after v7. There is no `v8` or `v9` ref, so a `@v8`/`@v9` pin
+# A note on `astral-sh/setup-uv` below, which is pinned to an exact release where
+# most actions here float on their major: upstream stopped publishing
+# rolling major tags after v7. No later major has a rolling ref, so a `@v10` pin
 # does not resolve and a `@v7` pin is frozen for good -- Dependabot cannot
 # advance it, because the tag it would advance to does not exist. Pinning the
 # exact release is the only way to stay current; the cost is that each setup-uv
 # release raises its own Dependabot pull request, grouped with the other actions.
+#
+# Each job's uv cache entry carries its job id (`cache-suffix`). The jobs install
+# different dependency groups, and an entry under a key that already exists is never
+# saved again, so with one key shared between them only the first job to finish would
+# save, and the others would download what it lacked on every run until the key
+# changed.
 
 jobs:
-  precommit:
-    name: Pre-commit
+  secrets:
+    # Every secret scan of the change: trufflehog over the commits it adds, then the
+    # hooks that read only staged changes, over the change staged as one. Those
+    # hooks scan nothing on a clean checkout, which is why the precommit job skips
+    # them and this job stages the change before running them.
+    name: Secret scanning
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    permissions:
-      # trufflehog only. Deliberately not hoisted to workflow level: the pytest
-      # and mypy jobs have no business holding it.
-      id-token: write
-      contents: read
     steps:
+      # Both scans read history: trufflehog the commits, the staging the base.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -60,29 +66,85 @@ jobs:
             noxfile.py
             pyproject.toml
             uv.lock
+          cache-suffix: ${{ github.job }}
+          python-version: ${{ env.PYTHON_VERSION }}
+      # Its own key, for the same reason as the analysis job's, and restored and
+      # pruned as the precommit job's is.
+      - name: Cache pre-commit hooks
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/pre-commit
+          key: >-
+            ${{ runner.os }}-precommit-secrets-${{ hashFiles('.github/workflows/.cache-buster')
+            }}-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-precommit-secrets-${{ hashFiles('.github/workflows/.cache-buster') }}-
+      - name: Scan the staged change
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          # A dispatch has no base, and the first push of a branch reports forty
+          # zeros; either way there is no change to stage, and trufflehog's scan
+          # above is the whole of it.
+          zero=0000000000000000000000000000000000000000
+          if [ -z "${BASE_SHA}" ] || [ "${BASE_SHA}" = "${zero}" ]; then
+            echo "::notice::No comparison base, so only trufflehog scanned this run."
+            exit 0
+          fi
+          git reset --soft "${BASE_SHA}"
+          uv run --locked --only-group ci nox -s secrets
+      - name: Drop hook environments the config no longer uses
+        run: uv run --locked --only-group ci pre-commit gc
+
+  precommit:
+    name: Pre-commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            .github/workflows/.cache-buster
+            .github/workflows/CI.yml
+            noxfile.py
+            pyproject.toml
+            uv.lock
+          cache-suffix: ${{ github.job }}
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Cache pre-commit hooks
         uses: actions/cache@v6
         with:
           path: ~/.cache/pre-commit
-          # Content-addressed, not date-stamped. The previous key embedded
-          # `date +%Y%m%d` with no restore-keys, so every hook environment was
-          # reinstalled cold on the first run of each day and the entry written
-          # was never read again. `.cache-buster` is what `make bust-ci-cache`
-          # writes, so it is the deliberate invalidation lever; the restore-keys
-          # prefix means bumping it still warm-starts from the last good entry.
+          # The buster leads the key, then the hook config. A changed config restores
+          # the newest entry under the same buster, so only the hooks whose rev moved
+          # are built again, and the job's last step drops what the config no longer
+          # uses before the entry is saved. A bumped buster, which `make
+          # bust-ci-cache` writes, matches no entry and starts from empty.
           key: >-
-            ${{ runner.os }}-precommit-${{ hashFiles('.pre-commit-config.yaml')
-            }}-${{ hashFiles('.github/workflows/.cache-buster') }}
+            ${{ runner.os }}-precommit-${{ hashFiles('.github/workflows/.cache-buster')
+            }}-${{ hashFiles('.pre-commit-config.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-precommit-${{ hashFiles('.pre-commit-config.yaml') }}-
+            ${{ runner.os }}-precommit-${{ hashFiles('.github/workflows/.cache-buster') }}-
       - name: Run pre-commit
+        env:
+          # The analysis job runs the first three, by the ids in noxfile.py's
+          # _ANALYSIS_HOOKS, and the secrets job the rest, by _SECRET_HOOKS.
+          SKIP: ty,basedpyright,pylint,gitleaks
         run: |-
           bash .github/scripts/ci-ruff-args.sh
-          uv run --locked --only-group dev nox -s precommit
+          uv run --locked --only-group ci nox -s precommit
+      - name: Drop hook environments the config no longer uses
+        run: uv run --locked --only-group ci pre-commit gc
 
-  mypy:
-    name: mypy
+  analysis:
+    # The hooks that check against the project environment, the slowest in the
+    # config, in parallel with the rest instead of after them.
+    name: Static analysis
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -97,38 +159,35 @@ jobs:
             noxfile.py
             pyproject.toml
             uv.lock
+          cache-suffix: ${{ github.job }}
           python-version: ${{ env.PYTHON_VERSION }}
-      # mypy runs through its pre-commit hook (see noxfile), so it needs the hook
-      # environment cache as well as its own type cache.
+      # Its own key, because this job installs only the ty hook's environment and
+      # the precommit job every other one: sharing an entry would leave one of them
+      # without its environments. Restored and pruned as the precommit job's is.
       - name: Cache pre-commit hooks
         uses: actions/cache@v6
         with:
           path: ~/.cache/pre-commit
           key: >-
-            ${{ runner.os }}-precommit-${{ hashFiles('.pre-commit-config.yaml')
-            }}-${{ hashFiles('.github/workflows/.cache-buster') }}
+            ${{ runner.os }}-precommit-analysis-${{ hashFiles('.github/workflows/.cache-buster')
+            }}-${{ hashFiles('.pre-commit-config.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-precommit-${{ hashFiles('.pre-commit-config.yaml') }}-
-      - name: Cache mypy
-        uses: actions/cache@v6
-        with:
-          path: .mypy_cache
-          # Two-tier: a source-only change restores the previous type cache and
-          # re-checks only what moved, while a dependency change invalidates it.
-          key: >-
-            ${{ runner.os }}-mypy-${{ hashFiles('pyproject.toml', 'uv.lock')
-            }}-${{ hashFiles('src/**/*.py', 'tests/**/*.py', 'noxfile.py') }}
-          restore-keys: |
-            ${{ runner.os }}-mypy-${{ hashFiles('pyproject.toml', 'uv.lock') }}-
-      - name: Run mypy
-        run: uv run --locked --only-group dev nox -s mypy
+            ${{ runner.os }}-precommit-analysis-${{ hashFiles('.github/workflows/.cache-buster') }}-
+      - name: Run the analysis hooks
+        run: uv run --locked --only-group ci nox -s analysis
+      - name: Drop hook environments the config no longer uses
+        run: uv run --locked --only-group ci pre-commit gc
 
   pytest:
     name: pytest
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # The coverage-diff step below needs the comparison base reachable locally to
+      # compute `git diff`; a shallow checkout would not have it.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Set up uv
         uses: astral-sh/setup-uv@v10.1.0
         with:
@@ -139,21 +198,61 @@ jobs:
             noxfile.py
             pyproject.toml
             uv.lock
+          cache-suffix: ${{ github.job }}
           python-version: ${{ env.PYTHON_VERSION }}
+      # Instrumented rather than run twice: the JSON report is what the coverage
+      # comment is rendered from, and term-missing keeps the log readable.
       - name: Run tests
-        run: uv run --locked --only-group dev nox -s test
+        run: >-
+          uv run --locked --only-group ci nox -s test --
+          --cov-report=term-missing --cov-report=json:coverage/coverage.json
+      # `always()`: a failing suite still produced coverage data, and that is usually
+      # the first thing worth seeing when a test breaks.
+      - name: Compute the changed lines against the comparison base
+        if: always()
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          mkdir -p coverage
+          # The first push of a new branch reports `before` as forty zeros, which
+          # `git diff` cannot use, so that case is skipped.
+          zero=0000000000000000000000000000000000000000
+          if [ -n "${BASE_SHA}" ] && [ "${BASE_SHA}" != "${zero}" ]; then
+            git diff --unified=0 --no-color "${BASE_SHA}" HEAD > coverage/diff.txt || true
+          fi
+      - name: Render the coverage-diff report
+        if: always()
+        env:
+          HEAD_REF: ${{ github.head_ref || github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          args=(--coverage-json coverage/coverage.json --repo "${REPO}" \
+            --ref "${HEAD_REF}" --out coverage/report.md)
+          if [ -s coverage/diff.txt ]; then
+            args+=(--diff-file coverage/diff.txt)
+          fi
+          uv run --locked --only-group ci python -m scripts.coverage_diff_report "${args[@]}"
+      # coverage-comment.yml downloads this from a workflow_run and posts it, so the
+      # write scope the comment needs never sits in a job that runs pull request code.
+      - name: Upload the coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report
+          path: coverage
+          if-no-files-found: ignore
 
   run-ci:
-    # THE REQUIRED STATUS CONTEXT. The previous single job was `name: Run CI`
-    # under a one-element python-version matrix, which GitHub rendered as
-    # `Run CI (3.13)`. This aggregate reproduces that string exactly so branch
-    # protection needs no re-pointing, and so the job set above can grow later
-    # without touching branch protection again. Renaming this leaves a required
-    # context that never reports, which blocks every pull request; renaming it to
-    # something not required silently un-gates the branch. Verify against
-    # `gh api repos/OWNER/REPO/rulesets` before changing it.
+    # The aggregate of every job above, and the context the ruleset main-protect
+    # requires, with `checks`. The name is kept stable so the job set above can
+    # grow without touching that ruleset. Renaming this leaves a required context
+    # that never reports, which blocks every pull request; renaming it to something
+    # not required silently un-gates the branch. Verify against
+    # `gh api repos/michen00/freeze-pr-links/rulesets` before changing it.
+    # dependabot-auto-merge.yml arms only when this context is required, and
+    # names it too.
     name: Run CI (3.13)
-    needs: [precommit, mypy, pytest]
+    needs: [secrets, precommit, analysis, pytest]
     # `always()` so a skipped or canceled dependency reddens this job rather
     # than passing it by omission.
     if: always()

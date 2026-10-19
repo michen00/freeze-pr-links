@@ -1,0 +1,204 @@
+---
+name: Coverage on demand
+
+# A coverage report you can ask for, for a pull request that predates
+# ci.yml's push-triggered reporting, or whose comment was deleted, or whose
+# head needs re-measuring without an empty commit to force a push. Two ways
+# in: comment `/coverage-report` on the pull request, or dispatch this
+# workflow by hand with a pull request number.
+#
+# `issue_comment` fires for every comment on every issue and pull request in
+# the repository, so three things gate the job before anything runs: the
+# comment is on a pull request (`github.event.issue.pull_request != null`,
+# since `issue_comment` fires for plain issues too), the comment starts with
+# the trigger phrase, and its author holds OWNER, MEMBER, or COLLABORATOR --
+# on a repository where commenting already implies push access, this is close
+# to redundant, but it is what keeps the gate honest if that ever stops being
+# true, and it is the trust boundary that makes running the pull request's
+# own code below acceptable: the person who asked for this measurement already
+# has push access here, whatever the code being measured contains.
+#
+# This is a genuinely new trigger shape for this repository: nothing else here
+# parses a comment body for a command. `workflow_dispatch` needs no such
+# check -- GitHub already restricts who can dispatch a workflow by hand to
+# people with write access, which is the same bar the comment-author check
+# enforces by hand for the other trigger.
+#
+# Split into three jobs rather than grilling-station's single one, and the
+# split is not cosmetic: `measure` checks out the pull request's own head to
+# run its tests, under `contents: read` and nothing else, while `comment` is
+# the one job holding `pull-requests: write` and never checks out anything
+# but this workflow's own script from the default branch. Folding the two
+# together -- as ci.yml deliberately does NOT for the same reason -- would run
+# pull-request-authored code beside a token that can write to the
+# conversation. `resolve` needs no code at all, only the GitHub API.
+#
+# `workflow_dispatch` and `issue_comment` are both repository-level events, so
+# every job here always runs the copy of this file on the default branch,
+# regardless of which trigger fired or which pull request is being measured --
+# unlike ci.yml, there is no pull_request-triggered job here whose definition
+# a branch could rewrite.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request to measure
+        required: true
+        type: string
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event.issue.pull_request != null
+      && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'),
+      github.event.comment.author_association)
+      && startsWith(github.event.comment.body, '/coverage-report'))
+    permissions:
+      contents: read
+      # The reaction and the pull request lookup are both issue/PR-comment-
+      # shaped API calls; pull-requests: write is the scope this repository's
+      # other comment-posting jobs already use for the same shape of call
+      # (see pr-advisory-comment.yml), so it is reused here rather than
+      # introducing an untested issues: write scope for one reaction call.
+      pull-requests: write
+    outputs:
+      pr_number: ${{ steps.pr.outputs.number }}
+      head_sha: ${{ steps.pr.outputs.head_sha }}
+      head_ref: ${{ steps.pr.outputs.head_ref }}
+      head_repo: ${{ steps.pr.outputs.head_repo }}
+    steps:
+      # Ten minutes of silence after typing a command reads as a broken
+      # command. Best-effort: a failed reaction is not worth failing the run.
+      - name: React to the triggering comment
+        if: github.event_name == 'issue_comment'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api "repos/${REPO}/issues/comments/${COMMENT_ID}/reactions" \
+            -f content='eyes' --silent
+      # The number is interpolated into REST paths below, so it is validated
+      # before anything reads it, whichever trigger supplied it.
+      - name: Resolve the pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: >-
+            ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number
+            || github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          case "${PR_NUMBER}" in
+            ''|*[!0-9]*)
+              echo "::error::PR number must be digits, got '${PR_NUMBER}'"
+              exit 1 ;;
+          esac
+          pr_json="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")"
+          head_sha="$(jq -r '.head.sha' <<<"${pr_json}")"
+          head_ref="$(jq -r '.head.ref' <<<"${pr_json}")"
+          head_repo="$(jq -r '.head.repo.full_name // empty' <<<"${pr_json}")"
+          if [ -z "${head_repo}" ]; then
+            echo "::error::the head repository for #${PR_NUMBER} is gone; nothing to check out"
+            exit 1
+          fi
+          if ! [[ "${head_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::unexpected head SHA shape for #${PR_NUMBER}"
+            exit 1
+          fi
+          {
+            echo "number=${PR_NUMBER}"
+            echo "head_sha=${head_sha}"
+            echo "head_ref=${head_ref}"
+            echo "head_repo=${head_repo}"
+          } >>"${GITHUB_OUTPUT}"
+
+  measure:
+    needs: resolve
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # Pinned to the SHA `resolve` already validated, not the branch name --
+      # a branch can move between the two jobs, and the SHA is what the
+      # eventual comment names as measured.
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ needs.resolve.outputs.head_repo }}
+          ref: ${{ needs.resolve.outputs.head_sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      # No uv cache. This runs rarely, so an entry would mostly be cold or evicted,
+      # and setup-uv's default key leaves out `.cache-buster`, so a bust would not
+      # reach it.
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: false
+          python-version: '3.13'
+      - run: uv sync --locked --group test
+      - run: >-
+          uv run --no-sync python -m pytest --cov
+          --cov-report=term-missing --cov-report=json:coverage/coverage.json
+      - name: Fetch main for the comparison diff
+        run: git fetch origin main --depth=1
+      - name: Compute the changed lines against main
+        run: |
+          mkdir -p coverage
+          base="$(git merge-base origin/main HEAD)"
+          git diff --unified=0 --no-color "${base}" HEAD > coverage/diff.txt || true
+      - name: Render the coverage-diff report
+        env:
+          REPO: ${{ github.repository }}
+          HEAD_REF: ${{ needs.resolve.outputs.head_ref }}
+        run: |
+          args=(--coverage-json coverage/coverage.json --repo "${REPO}" \
+            --ref "${HEAD_REF}" --out coverage/report.md)
+          if [ -s coverage/diff.txt ]; then
+            args+=(--diff-file coverage/diff.txt)
+          fi
+          uv run --no-sync python -m scripts.coverage_diff_report "${args[@]}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report-on-demand
+          path: coverage/report.md
+          if-no-files-found: error
+
+  comment:
+    needs: [resolve, measure]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # No `ref:`: this checks out the script from the default branch, never
+      # the pull request measured above. `measure` already ran that
+      # repository's own code under a read-only token; this job's write
+      # scope never touches it.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: coverage-report-on-demand
+          path: ${{ runner.temp }}/coverage
+      - name: Post the coverage comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          REPORT_FILE: ${{ runner.temp }}/coverage/report.md
+          HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          RUN_URL: >-
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{
+            github.run_id }}
+        run: bash .github/scripts/coverage-comment.sh

@@ -77,6 +77,15 @@ $ freeze-pr-links --body-file body.md \
 
 `files.txt` and `directories.txt` list the paths at the head commit, one per line. `freeze-pr-links --help` describes every option.
 
+## Development
+
+```bash
+make develop   # dependencies and the git hooks
+make check     # the full local gate
+```
+
+[CONTRIBUTING.md](CONTRIBUTING.md) has the commit and pull-request rules.
+
 ## Security
 
 The workflow runs on `pull_request_target`, so it holds a write token while it reads text that the pull request's author wrote. [SECURITY.md](SECURITY.md) says what the action guarantees about that text and what a calling workflow has to keep true.

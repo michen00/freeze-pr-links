@@ -10,12 +10,13 @@ updates:
         update-types: [major]
       uv-minor-patch:
         update-types: [minor, patch]
+    commit-message:
+      prefix: chore
     cooldown:
+      # default-days covers the patch and minor releases auto-merge arms; a
+      # compromised publisher ships those as readily as a major.
+      default-days: 7
       semver-major-days: 30
-  # Dependabot owns hook bumps. pre-commit.ci is left as a slow backstop via
-  # `autoupdate_schedule: quarterly` in .pre-commit-config.yaml -- its schedule
-  # accepts only weekly/monthly/quarterly and cannot be stood down, so the two
-  # cannot both be primary.
   - package-ecosystem: pre-commit
     directory: /
     schedule:
@@ -23,6 +24,8 @@ updates:
     groups:
       pre-commit:
         patterns: ['*']
+    commit-message:
+      prefix: chore
     cooldown:
       default-days: 7
   - package-ecosystem: github-actions
@@ -36,9 +39,10 @@ updates:
     ignore:
       # changelog-autoupdate.yml floats this on the major on purpose:
       # install-action resolves an unversioned tool from manifests baked into
-      # its own release, so pinning the action pins git-cliff with it. Was
-      # re-pinned to @v2.85.4 in #149 and had to be reverted.
+      # its own release, so pinning the action pins git-cliff with it.
       - dependency-name: taiki-e/install-action
+    commit-message:
+      prefix: chore
     cooldown:
       # default-days only. GitHub rejects the semver-* keys for this ecosystem --
       # "not supported for the package ecosystem 'github-actions'" -- and an
@@ -47,10 +51,8 @@ updates:
       # check-dependabot schema hook does not catch it, because the rejection is
       # server-side rather than schematic.
       #
-      # So one number covers every actions update, and 30 days is chosen over a
-      # shorter delay because bot-automerge.yml now arms actions majors: this is
-      # the only soak period between a release being published and it merging
-      # here unattended. A patch is not safer than a major when the risk is a
-      # compromised publisher rather than a changed interface, and these packages
-      # execute with this repository's own token inside jobs holding write scopes.
+      # So one number covers every actions update. A patch is not safer than a
+      # major when the risk is a compromised publisher rather than a changed
+      # interface, and these packages execute with this repository's own token
+      # inside jobs holding write scopes.
       default-days: 30

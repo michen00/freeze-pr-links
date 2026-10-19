@@ -2,13 +2,13 @@
 
 Merge commits and bot- or tool-authored commits are skipped, because their subjects
 are exempt from the human-authored title rules. Any human commit whose subject is not
-valid Conventional Commit form (or exceeds the hard length limit, or ends in a period)
-is an error and exits non-zero; mood preferences are warnings.
+valid Conventional Commit form (or exceeds the maximum length, or ends in a period) is
+an error and exits non-zero; mood preferences are warnings.
 
 Usage:
     python -m checks.check_commit_messages            # origin/main..HEAD
     python -m checks.check_commit_messages main..HEAD
-    python -m checks.check_commit_messages --max-length 72
+    SUBJECT_MAX_LENGTH=72 python -m checks.check_commit_messages
     SUBJECT_MAX_LENGTH=off python -m checks.check_commit_messages
 """
 
@@ -36,7 +36,14 @@ _BOT_AUTHORS = frozenset({'dependabot', 'github-actions', 'pre-commit-ci'})
 def _commit_rows(rev_range: str) -> list[tuple[str, str, str]]:
     """Return (sha, author, subject) for each non-merge commit in the range."""
     result = subprocess.run(
-        ['git', 'log', '--no-merges', f'--format=%H{_UNIT}%an{_UNIT}%s', rev_range],
+        [
+            'git',
+            'log',
+            '--no-merges',
+            '--no-show-signature',
+            f'--format=%H{_UNIT}%an{_UNIT}%s',
+            rev_range,
+        ],
         capture_output=True,
         text=True,
         check=True,
@@ -60,11 +67,9 @@ def check_commits(
     """Validate the subject of every non-bot commit and combine the findings.
 
     Each row is (sha, author, subject). Bot- or tool-authored commits are skipped.
-    ``max_length`` is passed through to check_subject, so a commit subject and a pull
-    request title answer to the same maximum from the same sources.
 
-    Returns:
-        The merged findings of every checked commit, each labeled by its short SHA.
+    `max_length` is passed through to check_subject, so a commit subject and a pull
+    request title answer to the same number from the same sources.
     """
     aggregate = Findings()
     merge_findings = aggregate.merge

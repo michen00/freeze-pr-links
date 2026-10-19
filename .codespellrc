@@ -7,4 +7,4 @@ check-hidden = true
 # CODE_OF_CONDUCT.md is verbatim Contributor Covenant text, so its en-GB spelling
 # is skipped rather than corrected -- editing vendored text to satisfy a linter
 # silently forks it from upstream.
-skip = .gitignore,CODE_OF_CONDUCT.md,*.lock,*.lock.yml,*-lock.json
+skip = .gitignore,CODE_OF_CONDUCT.md,*.lock,*-lock.json

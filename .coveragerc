@@ -1,6 +1,6 @@
 [run]
 branch = True
-source_pkgs = freeze_pr_links
+source_pkgs = freeze_pr_links, checks, scripts
 
 [report]
 ; Regexes for lines to exclude from consideration

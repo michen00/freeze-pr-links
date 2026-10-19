@@ -7,8 +7,9 @@ of its detection. Invoke a check as a module, for example:
     python -m checks.check_pr_title "feat: add config precedence rule"
 
 The modules are pure standard library on purpose: CI runs them with a bare
-`actions/setup-python` and no project install, so a pull request cannot change what
-the gate checking it is made of.
+`actions/setup-python` and no project install, so the gate resolves no dependencies
+from the pull request it checks. It does run that pull request's copy of these
+modules, so a pull request can change the checks applied to it.
 """
 
 __all__ = ()

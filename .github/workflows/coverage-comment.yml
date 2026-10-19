@@ -1,0 +1,107 @@
+---
+name: Coverage comment
+
+# Posts the coverage report ci.yml's test job rendered. This exists as its own
+# workflow for the same reason pr-advisory-comment.yml does: on a workflow_run
+# event GitHub takes the definition from the default branch, never from the
+# pull request, so the write scope below is out of reach of the branch it
+# comments on -- which is not true of any job inside ci.yml itself, since a
+# pull_request run there resolves the PR's own merge tree.
+#
+# The cost is the same one pr-advisory-comment.yml pays: this file only takes
+# effect once it is on the default branch, so a change to it is verified after
+# the fact rather than before.
+
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+
+permissions:
+  contents: read
+  # Downloading an artifact produced by another run.
+  actions: read
+  # The comment itself.
+  pull-requests: write
+
+# Keyed on the head rather than on the pull request number, which the
+# workflow_run payload does not carry for a fork -- matching
+# pr-advisory-comment.yml's own reasoning.
+concurrency:
+  group: >-
+    coverage-comment-${{ github.event.workflow_run.head_repository.full_name }}-${{
+    github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    steps:
+      # No `ref:`, which on workflow_run resolves the default branch rather
+      # than the pull request -- so the script this runs is the reviewed one.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # continue-on-error: ci.yml's own earlier steps (checkout, setup-uv, uv
+      # sync) could fail before the coverage steps ever ran, in which case
+      # there is nothing to download. That is a real CI failure already
+      # visible on the run itself, not a reason to fail loudly a second time
+      # here.
+      - name: Download the coverage report
+        id: report
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: coverage-report
+          path: ${{ runner.temp }}/coverage
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Say why nothing was posted
+        if: steps.report.outcome != 'success'
+        run: |
+          echo "no coverage-report artifact on this run; an earlier step in"
+          echo "ci.yml's test job likely failed before producing one"
+      # Resolved here rather than trusted from anywhere in the artifact, for
+      # the same reason pr-advisory-comment.yml resolves it this way: a fork's
+      # pull_request run supplies ci.yml's own inputs, so a number carried
+      # inside the artifact would be attacker-controlled and could point this
+      # comment at a different pull request. head_sha is recorded by GitHub
+      # for the run itself, and the commits/{sha}/pulls endpoint answers from
+      # this repository's own view -- neither is writable from a branch.
+      - name: Resolve which pull request this run belongs to
+        id: pr
+        if: steps.report.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          number="$(gh api "repos/${REPO}/commits/${HEAD_SHA}/pulls" \
+            --jq '[.[] | select(.state == "open") | .number] | first // empty')"
+          case "${number}" in
+            "") echo "no open pull request for ${HEAD_SHA}; nothing to comment on"
+                exit 0 ;;
+            *[!0-9]*) echo "::error::refusing a non-numeric PR number: ${number}"
+                exit 1 ;;
+          esac
+          echo "number=${number}" >>"${GITHUB_OUTPUT}"
+      # continue-on-error: delivering the report is not a quality judgment,
+      # so a GitHub API hiccup here must not read as anything more than what
+      # it is -- a lost delivery, visible as a failed step and an annotation.
+      - name: Post the coverage comment
+        if: steps.pr.outputs.number != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPORT_FILE: ${{ runner.temp }}/coverage/report.md
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          if ! bash .github/scripts/coverage-comment.sh; then
+            echo "::warning::the coverage comment failed to post or update;" \
+              "the PR conversation may show a stale report"
+            exit 1
+          fi

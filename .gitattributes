@@ -11,10 +11,12 @@
 *.css           text diff=css
 *.htm           text diff=html
 *.html          text diff=html
+*.ipynb         text eol=lf diff=ipynb
 *.java          text diff=java
 *.js            text
 *.json          text
 *.jsp           text
+*.lock          text
 *.md            text diff=markdown
 *.php           text diff=php
 *.properties    text
@@ -23,6 +25,7 @@
 *.sh            text eol=lf diff=bash
 *.sql           text
 *.tf            text
+*.toml          text
 *.ts            text
 *.txt           text
 *.xml           text
