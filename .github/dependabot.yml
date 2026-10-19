@@ -9,11 +9,7 @@ updates:
       uv-major:
         update-types: [major]
       uv-minor-patch:
-        update-types: [minor, patch]
-    # Named in every entry, because without it Dependabot takes its title style
-    # from the repository's history: a history with no Conventional Commits yet
-    # gets `Bump ...`, which the PR checks let through for bots. The case of
-    # `bump` still comes from the newest Dependabot commit on main.
+update-types: [minor, patch]
     commit-message:
       prefix: build
       prefix-development: build
