@@ -108,4 +108,7 @@ jobs:
           # A tag pushed with GITHUB_TOKEN does not fire `on: push: tags`, so
           # Release Publish is dispatched explicitly. workflow_dispatch is
           # exempt from the rule that blocks workflows triggering workflows.
-          gh workflow run release-publish.yml --ref main -f tag="$RELEASE_TAG"
+          # It is dispatched on the tag rather than on main, so the run, its
+          # Sigstore signatures and its provenance attestation all name the
+          # tag; release-publish.yml refuses to publish from any other ref.
+          gh workflow run release-publish.yml --ref "$RELEASE_TAG" -f tag="$RELEASE_TAG"

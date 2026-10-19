@@ -16,6 +16,7 @@ on:
         type: string
 
 permissions:
+  attestations: write
   contents: write
   id-token: write
 
@@ -66,6 +67,20 @@ jobs:
 
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
+      # The run's Sigstore signatures and its provenance attestation name the
+      # ref the run started on, so a run started anywhere but the tag would
+      # publish artifacts whose provenance points elsewhere. release-tag.yml
+      # dispatches on the tag, and a tag push starts on it.
+      - name: Require the run to have started on the tag
+        env:
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
+        run: |
+          if [ "$GITHUB_REF" != "refs/tags/$RELEASE_TAG" ]; then
+            echo "::error::This run started on $GITHUB_REF. Dispatch it on the tag:" \
+              "gh workflow run release-publish.yml --ref $RELEASE_TAG -f tag=$RELEASE_TAG"
+            exit 1
+          fi
+
       - name: Check out the release tag
         env:
           RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
@@ -92,6 +107,18 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
         run: scripts/release/build-artifacts.sh "$RELEASE_TAG" "$DIST_DIR"
+
+      # The attestation binds each artifact's digest to this repository, this
+      # workflow and the tag the run started on; `gh attestation verify`
+      # checks all three. The signature files made next are left out: they are
+      # evidence about the artifacts rather than artifacts.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            ${{ env.DIST_DIR }}/*.whl
+            ${{ env.DIST_DIR }}/*.tar.gz
+            ${{ env.DIST_DIR }}/*-checksums.txt
 
       - name: Sign artifacts
         env:

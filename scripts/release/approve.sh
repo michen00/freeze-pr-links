@@ -28,9 +28,10 @@
 #
 # The publish job also holds the release key, and a run's name is set by the
 # run's own workflow file, read from whichever ref the run started on. So a
-# publish run is approved only when it started from a file already on main or
-# in the tag: the dispatch on main that Release Tag makes or a maintainer
-# repeats by hand, or a push of the tag itself. The run that follows a Release
+# publish run is approved only when it started on the tag it names: the
+# dispatch on the tag that Release Tag makes or a maintainer repeats by hand,
+# or a push of the tag itself. Starting on the tag is also what makes the
+# run's provenance attestation name the tag. The run that follows a Release
 # Tag approval must be that dispatch.
 #
 # The branch name is parsed through parse-version.sh for the same reason the
@@ -99,7 +100,7 @@ repo="$(gh repo view --json nameWithOwner --jq .nameWithOwner)" ||
 # past it.
 waiting_run() {
   gh run list --workflow="$1" --status waiting --limit 1 \
-    --json databaseId,displayTitle,event,headBranch,url ||
+    --json databaseId,displayTitle,event,headBranch,headSha,url ||
     die "Could not list $1 runs."
 }
 
@@ -112,9 +113,26 @@ publish_tag() {
 }
 
 # publish_origin <waiting-json> -- prints "<event> <branch>" for the run: what
-# started it, and the ref its workflow file was read from.
+# started it, and the name of the ref its workflow file was read from.
 publish_origin() {
   printf '%s' "$1" | jq -r '.[0] | "\(.event) \(.headBranch)"'
+}
+
+# require_tag_commit <tag> <waiting-json> <run-url> -- prints the commit the tag
+# points at, and refuses unless the run started on that commit. The origin
+# check above cannot do this alone: `headBranch` is a bare ref name, so a
+# branch named like the tag reads the same, and its workflow file is whatever
+# that branch carries. A run whose head commit is the tag's commit read the
+# tag's own workflow file, whatever the ref is called.
+require_tag_commit() {
+  # refs/tags/ because a bare name also matches a branch, whose tip is not
+  # what the run checks out.
+  tag_commit="$(gh api "repos/$repo/commits/refs/tags/$1" --jq .sha)" ||
+    die "Tag $1 does not resolve to a commit, so Release Publish would fail: $3. Reject it on GitHub, then run this again."
+  run_commit="$(printf '%s' "$2" | jq -r '.[0].headSha // empty')"
+  [ "$run_commit" = "$tag_commit" ] ||
+    die "Release Publish for $1 started on commit ${run_commit:-<none>}, not on $tag_commit, which the tag points at: $3. Reject it on GitHub, then run this again."
+  printf '%s\n' "$tag_commit"
 }
 
 # check_pending <run-id> -- refuses unless the caller can approve every
@@ -183,8 +201,9 @@ wait_for_publish() {
         die "A Release Publish run is waiting, but its name gives no vX.Y.Z tag: $publish_url"
       [ "$found_tag" = "$1" ] ||
         die "Release Publish for $found_tag is waiting ahead of $1: $publish_url. Approve or reject it, then run this again."
-      [ "$(publish_origin "$found")" = "workflow_dispatch main" ] ||
-        die "Release Publish for $1 is waiting, but it was not dispatched on main as Release Tag does: $publish_url. Reject it on GitHub, then run this again."
+      [ "$(publish_origin "$found")" = "workflow_dispatch $1" ] ||
+        die "Release Publish for $1 is waiting, but it was not dispatched on its tag as Release Tag does: $publish_url. Reject it on GitHub, then run this again."
+      require_tag_commit "$1" "$found" "$publish_url" > /dev/null || exit 1
       return 0
     fi
 
@@ -258,16 +277,13 @@ if [ -n "$publish_id" ]; then
 
   origin="$(publish_origin "$publish_waiting")"
   case "$origin" in
-    "workflow_dispatch main" | "push $tag") ;;
+    "workflow_dispatch $tag" | "push $tag") ;;
     *)
-      die "Release Publish for $tag is waiting, but it started from '$origin' rather than a dispatch on main or a push of the tag: $publish_url. Reject it on GitHub, then run this again."
+      die "Release Publish for $tag is waiting, but it started from '$origin' rather than a dispatch on the tag or a push of it: $publish_url. Reject it on GitHub, then run this again."
       ;;
   esac
 
-  # refs/tags/ because a bare name also matches a branch, whose tip is not
-  # what the run checks out.
-  commit="$(gh api "repos/$repo/commits/refs/tags/$tag" --jq .sha)" ||
-    die "Tag $tag does not resolve to a commit, so Release Publish would fail: $publish_url. Reject it on GitHub, then run this again."
+  commit="$(require_tag_commit "$tag" "$publish_waiting" "$publish_url")" || exit 1
 
   check_pending "$publish_id"
 
