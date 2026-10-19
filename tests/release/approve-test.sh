@@ -132,13 +132,14 @@ MERGE_SHA="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 WAITING_RUN="[{\"databaseId\":42,\"headBranch\":\"release/v9.9.9\",\"headSha\":\"$BRANCH_TIP\",\"url\":\"https://example.invalid/run/42\"}]"
 MERGED_PR="[{\"number\":83,\"mergeCommit\":{\"oid\":\"$MERGE_SHA\"}}]"
-PUBLISH_RUN='[{"databaseId":43,"displayTitle":"Release Publish v9.9.9","event":"workflow_dispatch","headBranch":"main","url":"https://example.invalid/run/43"}]'
-OTHER_PUBLISH_RUN='[{"databaseId":44,"displayTitle":"Release Publish v9.9.8","event":"workflow_dispatch","headBranch":"main","url":"https://example.invalid/run/44"}]'
+PUBLISH_RUN='[{"databaseId":43,"displayTitle":"Release Publish v9.9.9","event":"workflow_dispatch","headBranch":"v9.9.9","url":"https://example.invalid/run/43"}]'
+OTHER_PUBLISH_RUN='[{"databaseId":44,"displayTitle":"Release Publish v9.9.8","event":"workflow_dispatch","headBranch":"v9.9.8","url":"https://example.invalid/run/44"}]'
 UNNAMED_PUBLISH_RUN='[{"databaseId":45,"displayTitle":"Release Publish","event":"workflow_dispatch","headBranch":"main","url":"https://example.invalid/run/45"}]'
 # A run's name comes from its own workflow file, read from the ref it started
 # on, so these name v9.9.9 without being runs a maintainer has vouched for.
 BRANCH_PUBLISH_RUN='[{"databaseId":46,"displayTitle":"Release Publish v9.9.9","event":"workflow_dispatch","headBranch":"feature","url":"https://example.invalid/run/46"}]'
 FOREIGN_TAG_PUBLISH_RUN='[{"databaseId":47,"displayTitle":"Release Publish v9.9.9","event":"push","headBranch":"v9.9.10","url":"https://example.invalid/run/47"}]'
+MAIN_PUBLISH_RUN='[{"databaseId":49,"displayTitle":"Release Publish v9.9.9","event":"workflow_dispatch","headBranch":"main","url":"https://example.invalid/run/49"}]'
 TAG_PUSH_PUBLISH_RUN='[{"databaseId":48,"displayTitle":"Release Publish v9.9.9","event":"push","headBranch":"v9.9.9","url":"https://example.invalid/run/48"}]'
 TAG_SHA="cccccccccccccccccccccccccccccccccccccccc"
 PENDING_OK='[{"environment":{"id":7,"name":"release"},"current_user_can_approve":true}]'
@@ -408,7 +409,7 @@ else
     "Exited $status. Approved: '$runs'. Output: $out"
 fi
 
-# The one confirmation covered the dispatch Release Tag makes, on main. A run
+# The one confirmation covered the dispatch Release Tag makes, on the tag. A run
 # that merely names the same tag is not that run.
 : > "$log"
 out="$(GH_STUB_WAITING="$WAITING_RUN" GH_STUB_MERGEDPR="$MERGED_PR" \
@@ -417,7 +418,7 @@ out="$(GH_STUB_WAITING="$WAITING_RUN" GH_STUB_MERGEDPR="$MERGED_PR" \
   run_approve "$log" --yes)"
 status=$?
 runs="$(approved_runs "$log")"
-if [ "$status" -eq 1 ] && [ "$runs" = "42" ] && [[ "$out" == *"not dispatched on main"* ]]; then
+if [ "$status" -eq 1 ] && [ "$runs" = "42" ] && [[ "$out" == *"not dispatched on its tag"* ]]; then
   pass "never approves a same-named Release Publish run dispatched from another branch"
 else
   fail "refuses a publish run from another branch after the tag" \
@@ -505,7 +506,7 @@ else
   fail "a non-approver is rejected on the publish path" "Exited $status"
 fi
 
-for case_run in "$BRANCH_PUBLISH_RUN" "$FOREIGN_TAG_PUBLISH_RUN"; do
+for case_run in "$BRANCH_PUBLISH_RUN" "$FOREIGN_TAG_PUBLISH_RUN" "$MAIN_PUBLISH_RUN"; do
   : > "$log"
   out="$(GH_STUB_PUBLISH_WAITING="$case_run" GH_STUB_TAG_SHA="$TAG_SHA" \
     GH_STUB_PENDING="$PENDING_OK" run_approve "$log" --yes)"

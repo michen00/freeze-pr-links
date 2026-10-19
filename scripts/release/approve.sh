@@ -28,9 +28,10 @@
 #
 # The publish job also holds the release key, and a run's name is set by the
 # run's own workflow file, read from whichever ref the run started on. So a
-# publish run is approved only when it started from a file already on main or
-# in the tag: the dispatch on main that Release Tag makes or a maintainer
-# repeats by hand, or a push of the tag itself. The run that follows a Release
+# publish run is approved only when it started on the tag it names: the
+# dispatch on the tag that Release Tag makes or a maintainer repeats by hand,
+# or a push of the tag itself. Starting on the tag is also what makes the
+# run's provenance attestation name the tag. The run that follows a Release
 # Tag approval must be that dispatch.
 #
 # The branch name is parsed through parse-version.sh for the same reason the
@@ -183,8 +184,8 @@ wait_for_publish() {
         die "A Release Publish run is waiting, but its name gives no vX.Y.Z tag: $publish_url"
       [ "$found_tag" = "$1" ] ||
         die "Release Publish for $found_tag is waiting ahead of $1: $publish_url. Approve or reject it, then run this again."
-      [ "$(publish_origin "$found")" = "workflow_dispatch main" ] ||
-        die "Release Publish for $1 is waiting, but it was not dispatched on main as Release Tag does: $publish_url. Reject it on GitHub, then run this again."
+      [ "$(publish_origin "$found")" = "workflow_dispatch $1" ] ||
+        die "Release Publish for $1 is waiting, but it was not dispatched on its tag as Release Tag does: $publish_url. Reject it on GitHub, then run this again."
       return 0
     fi
 
@@ -258,9 +259,9 @@ if [ -n "$publish_id" ]; then
 
   origin="$(publish_origin "$publish_waiting")"
   case "$origin" in
-    "workflow_dispatch main" | "push $tag") ;;
+    "workflow_dispatch $tag" | "push $tag") ;;
     *)
-      die "Release Publish for $tag is waiting, but it started from '$origin' rather than a dispatch on main or a push of the tag: $publish_url. Reject it on GitHub, then run this again."
+      die "Release Publish for $tag is waiting, but it started from '$origin' rather than a dispatch on the tag or a push of it: $publish_url. Reject it on GitHub, then run this again."
       ;;
   esac
 
