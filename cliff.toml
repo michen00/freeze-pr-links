@@ -3,6 +3,9 @@
 
 [bump]
 breaking_always_bump_major = false
+# The version --bumped-version proposes while no tag exists. git-cliff's own
+# default, 0.1.0, has no `v`, so tag_pattern rejects it and Release PR fails.
+initial_tag = "v0.1.0"
 
 [changelog]
 
@@ -159,6 +162,10 @@ commit_parsers = [
     { message = "^chore: merge", skip = true },
     { message = "^docs\\(blame\\)", skip = true },
     { message = "^docs: update .git-blame-ignore-revs", skip = true },
+    # The repository's first commit, and the title Dependabot uses before the
+    # history gives it a Conventional Commit to copy; neither changes the tool.
+    { message = "^Initial commit", skip = true },
+    { message = "^Bump ", skip = true },
 
     # User-facing categories (KEEP)
     { message = "^feat", group = "<!-- 00 -->✨ Features" },

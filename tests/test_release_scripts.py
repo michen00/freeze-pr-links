@@ -5,7 +5,9 @@ branch name through before acting on it, so its edges are pinned here. approve.s
 has its own suite, which runs against a stubbed `gh`.
 """
 
+import re
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -100,3 +102,11 @@ def test_the_readme_carries_a_pin_for_a_release_to_move() -> None:
     """Release PR fails without a pin in the README, so one is always there."""
     readme = (_ROOT / 'README.md').read_text(encoding='utf-8')
     assert 'michen00/freeze-pr-links@v' in readme
+
+
+def test_the_first_release_version_matches_the_tag_pattern() -> None:
+    """With no tag yet, --bumped-version proposes a version Release PR can tag."""
+    config = tomllib.loads((_ROOT / 'cliff.toml').read_text(encoding='utf-8'))
+    initial = config['bump']['initial_tag']
+    assert re.fullmatch(config['git']['tag_pattern'], initial)
+    assert _run(_RELEASE / 'parse-version.sh', initial, '--require-v').returncode == 0
