@@ -43,7 +43,8 @@ def _definition_files() -> list[Path]:
     # `.yaml` spelling, and a scan that quietly skipped those would still pass.
     workflows = sorted((_ROOT / '.github/workflows').glob('*.y*ml'))
     actions = sorted((_ROOT / '.github/actions').glob('*/action.y*ml'))
-    return workflows + actions
+    published = sorted(_ROOT.glob('action.y*ml'))
+    return workflows + actions + published
 
 
 def _run_blocks(node: object) -> Iterator[str]:
@@ -85,7 +86,7 @@ def test_the_scan_covers_every_definition_in_the_tree() -> None:
         path
         for path in (_ROOT / '.github').rglob('*.y*ml')
         if path.parent.name == 'workflows' or path.stem == 'action'
-    }
+    } | set(_ROOT.glob('action.y*ml'))
     assert found == {path.relative_to(_ROOT).as_posix() for path in tracked}
     # Deliberately not a floor of ten, as the source of this test uses: a project
     # created from this one receives a subset of these definitions, so any specific

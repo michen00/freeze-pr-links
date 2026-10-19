@@ -7,6 +7,9 @@ authors = [{ name = 'Michael I Chen', email = 'michael.chen.0@gmail.com' }]
 requires-python = '>=3.13'
 dependencies = []
 
+[project.scripts]
+freeze-pr-links = 'freeze_pr_links.core:main'
+
 [dependency-groups]
 dev = [
     'mypy>=2.4.0',

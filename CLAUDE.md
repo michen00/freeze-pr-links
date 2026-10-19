@@ -2,6 +2,8 @@
 
 ## 1. Repository Context
 
+- This repository ships one GitHub Action, `action.yml`, which rewrites a merged pull request's head-branch links as commit permalinks. The transform is `src/freeze_pr_links/core.py`, and the action runs it from its own tree.
+- The action runs on `pull_request_target` with a write token. Breaking a property in [SECURITY.md](SECURITY.md) is a security regression, so read it before changing `action.yml`.
 - Uses modern Python tooling: `uv` (dependency management), `ruff` (linting/formatting), `mypy` (type checking), `pytest` (testing).
 - The `Makefile` is the primary entry point for all development tasks.
 - Follows Conventional Commits for version control.

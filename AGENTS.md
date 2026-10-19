@@ -2,6 +2,8 @@
 
 ## 1. Repository Identity & Purpose
 
+- This repository ships one GitHub Action, `action.yml`, which rewrites a merged pull request's head-branch links as commit permalinks. The transform is `src/freeze_pr_links/core.py`, and the action runs it from its own tree.
+- The action runs on `pull_request_target` with a write token. Breaking a property in [SECURITY.md](SECURITY.md) is a security regression, so read it before changing `action.yml`.
 - This project uses standard Python tooling (`uv`, `ruff`, `mypy`, `pytest`).
 
 ## 2. Development Workflow
