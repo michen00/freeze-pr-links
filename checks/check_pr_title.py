@@ -1,13 +1,8 @@
 """Check a pull request title against the repository conventions.
 
-Deterministic problems (a bad Conventional Commit form, exceeding the maximum length, a
-trailing period, a capitalized start) are errors and exit non-zero. Everything else is
-a warning and does not: mood and plan identifiers.
-
-The maximum is 50 unless ``--max-length`` or ``SUBJECT_MAX_LENGTH`` sets another or
-turns it ``off``, and a title answers to the same one as a commit subject. The
-``" (#N)"`` a squash merge appends is GitHub's and is not counted: a 50-character title
-lands at 58, inside the 72 where GitHub truncates a subject.
+Deterministic problems (a bad Conventional Commit form, exceeding the maximum length on
+the title as typed, a trailing period, a capitalized start) are errors and exit
+non-zero. Everything else is a warning and does not: mood and plan identifiers.
 
 Usage:
     python -m checks.check_pr_title "feat: add config precedence rule"

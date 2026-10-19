@@ -73,11 +73,6 @@ install: check-install-uv build/install-python-versions ## Install the project
 WITH_HOOKS ?= true
 WITH_SYNC_MAIN ?= false
 develop: check-install-uv build/install-dev ## Install the project for development (WITH_HOOKS={true|false}, default=true)
-	@echo "Installing missing type stubs..." && \
-        $(UV) run mypy --install-types --non-interactive --follow-imports=silent > /dev/null 2>&1 || true
-	@if ! git config --local --get-all include.path | grep -q ".gitconfigs/alias"; then \
-        git config --local --add include.path "$(CURDIR)/.gitconfigs/alias"; \
-    fi
 	@git config blame.ignoreRevsFile .git-blame-ignore-revs
 	@set -e; \
     if command -v git-lfs >/dev/null 2>&1; then \
@@ -99,7 +94,6 @@ test: check-install-uv build/install-test ## Run all tests with coverage (PARALL
 .PHONY: check
 check: tidy ## Run all code quality checks and tests
 	$(MAKE) run-pre-commit HOOK_STAGE=pre-commit
-	$(MAKE) run-pre-commit HOOK_STAGE=pre-push
 	$(MAKE) test
 
 ################################
@@ -126,9 +120,9 @@ TO_REMOVE := \
     .eggs \
     .git/hooks/commit-msg \
     .git/hooks/pre-commit \
+    .git/hooks/prepare-commit-msg \
     .git/hooks/pre-push \
     .ipynb_checkpoints \
-    .mypy_cache \
     .pytest_cache \
     .ruff_cache \
     __pycache__ \
@@ -301,7 +295,7 @@ check-install-uv: ## Check if uv is installed
 .PHONY: bust-ci-cache
 bust-ci-cache: ## Bust the CI cache
 	@CACHE_BUSTER=.github/workflows/.cache-buster && \
-    date > $$CACHE_BUSTER && \
+    { date; python3 -c 'import uuid; print(uuid.uuid4())'; } > $$CACHE_BUSTER && \
     git add $$CACHE_BUSTER && \
     git commit -m "ci: bust cache on $$(date +'%Y-%m-%d %H:%M')"
 

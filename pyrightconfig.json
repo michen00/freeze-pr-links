@@ -1,0 +1,8 @@
+{
+  "include": ["checks", "noxfile.py", "scripts", "src", "tests"],
+  "typeCheckingMode": "off",
+  "reportPrivateLocalImportUsage": "error",
+  "reportUnnecessaryComparison": "error",
+  "reportUnnecessaryContains": "error",
+  "reportUnreachable": "error"
+}

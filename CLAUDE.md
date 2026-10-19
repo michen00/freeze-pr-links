@@ -2,7 +2,11 @@
 
 ## 1. Repository Context
 
-- Uses modern Python tooling: `uv` (dependency management), `ruff` (linting/formatting), `mypy` (type checking), `pytest` (testing).
+- This repository ships one GitHub Action, `action.yml`, which rewrites a merged pull request's head-branch links as commit permalinks. The transform is `src/freeze_pr_links/core.py`, and the action runs it from its own tree.
+- **The action runs on `pull_request_target` with a write token.** Breaking a property in [SECURITY.md](SECURITY.md) is a security regression, so read it before changing `action.yml` or `.github/workflows/freeze-pr-links.yml`.
+- **The package uses only the standard library.** The action runs it without installing anything, and the command installs with no dependencies. Do not add a runtime dependency.
+- **Write in defined terms.** Say which links change and which do not, and name the step or check that does it. Avoid idiom and metaphor.
+- Uses modern Python tooling: `uv` (dependency management), `ruff` (linting/formatting), `ty` (type checking), `basedpyright` and `pylint` (only the checks those two do not make), `pytest` (testing).
 - The `Makefile` is the primary entry point for all development tasks.
 - Follows Conventional Commits for version control.
 
@@ -17,7 +21,7 @@
 
 ### Git Configuration
 
-- **Git LFS:** This project may use Git LFS for large files. Run `make develop` to configure it.
+- **Git LFS:** `.gitattributes` stores images, PDFs, Word documents and audio in Git LFS. `make develop` runs `git lfs install --local --skip-repo` when `git-lfs` is installed, and `make sync-main` runs `git lfs pull`.
 - **Blame Ignore:** A `.git-blame-ignore-revs` file can be used to exclude formatting-only commits from `git blame` once you add the relevant commit hashes. Configure via `git config blame.ignoreRevsFile .git-blame-ignore-revs` (handled by `make develop`).
 
 ### Common Commands (Makefile)
@@ -25,13 +29,12 @@
 Use the `Makefile` as the primary interface for development tasks:
 
 - **Install Dependencies:** `make develop` (installs dev dependencies, configures git hooks and git settings)
-- **Run All Checks:** `make check` (runs `make tidy`, both pre-commit stages, and tests)
+- **Run All Checks:** `make check` (runs `make tidy`, the pre-commit hooks, and tests)
 - **Run Tests:** `make test` (runs pytest with coverage)
 - **Linting:** `make lint` (ruff check --fix)
 - **Formatting:** `make format` (ruff format), `make tidy` (best-effort lint autofix + format), or `make tidy-all` (pre-commit + tidy)
 - **Clean Artifacts:** `make clean` (removes build artifacts, caches, etc.)
 - **Git Hooks:** `make enable-pre-commit` / `make disable-pre-commit`. Enabling auto-removes a local `core.hooksPath` if it's set to the default `.git/hooks` (a harmless leftover); a non-default value blocks with a remediation message (`git config --local --unset-all core.hooksPath`, or run `make develop WITH_HOOKS=false` to skip hook installation).
-- **Publishing:** `make push-test` / `make push-prod` (if applicable)
 
 ### Testing Philosophy
 
@@ -51,16 +54,17 @@ Use the `Makefile` as the primary interface for development tasks:
 - **Pytest Best Practices:**
   - **Fixtures:** Use `pytest` fixtures for setup/teardown (prefer `yield` fixtures). Use `conftest.py` for shared fixtures.
   - **Parametrization:** Use `@pytest.mark.parametrize` for data-driven tests.
-  - **Markers:** Use markers (e.g., `@pytest.mark.slow`) to categorize tests.
+  - **Markers:** Use markers to categorize tests, and register each one under `markers` in `pytest.toml` before using it: `--strict-markers` makes an unregistered marker such as `@pytest.mark.slow` a collection error.
   - **Style:** Prefer functional tests over class-based tests.
 
 ## 3. Project Structure
 
-Typical layout for this project:
-
 ```tree
-project/
-├── src/<project_name>/              # Source code
+freeze-pr-links/
+├── action.yml                       # The published composite action
+├── src/freeze_pr_links/             # The transform, and the freeze-pr-links command
+├── scripts/                         # The coverage report, release helpers, the .gitignore generator
+├── checks/                          # PR-title, PR-body and commit-subject checks run in CI
 ├── tests/                           # Test suite
 ├── .github/                         # GitHub Actions workflows
 ├── .specify/memory/constitution.md  # Project constitution
@@ -73,11 +77,11 @@ project/
 ### Configuration Files
 
 - **Linting & Formatting:** `.ruff.toml`, `.pylintrc`, `.pre-commit-config.yaml`, `.codespellrc`, `.markdownlint.yml`, `.yamllint`, `.gitlint`, `.editorconfig`
-- **Testing:** `pyproject.toml` (pytest config), `.coveragerc` (coverage config)
+- **Testing:** `pytest.toml` (pytest config), `.coveragerc` (coverage config)
 - **Editor:** `.editorconfig`, `.vscode/settings.json`, `.vscode/extensions.json`
+- **Type Checking:** `ty.toml`, `pyrightconfig.json` (basedpyright)
 - **Git:** `.gitignore`, `.gitattributes`, `.git-blame-ignore-revs`
   - `.gitignore` is generated by `scripts/concat-gitignores.sh`; regenerate it rather than editing it by hand. Project-specific patterns go in `scripts/custom.gitignore`, which is appended verbatim to the end.
-- **Documentation:** `cliff.toml` (changelog)
 
 ## 4. Coding Guidelines
 
@@ -87,7 +91,7 @@ Follow **Conventional Commits** format: `<type>(<scope>): <subject>`
 
 - **Types:** `feat`, `fix`, `docs`, `style`, `test`, `build`, `ci`, `refactor`, `perf`, `chore`, `revert`
 - **Imperative Mood:** Write subjects as commands (e.g., "add feature" not "added feature")
-- **Lowercase Start:** The first character after the colon must be a lowercase letter. The commit-msg hook rejects any other start, and the PR checks reject a capital one, an acronym included: write `update the API client`, not `API client updated`.
+- **Lowercase Start:** The first character after the colon, and after a `[TICKET-123]` key if there is one, must be a lowercase letter. The commit-msg hook rejects any other start, and the PR checks reject a capital one, an acronym included: write `add the API client`, not `API client added`.
 - **Summary Length:** Keep the subject line under 51 characters (≤50)
 - **Body Line Length:** Wrap body text at 72 characters
 - **Atomic Commits:** One logical change per commit
@@ -103,16 +107,12 @@ This includes login, logout, and token refresh endpoints.
 
 ### Code Style
 
-- **Enforcement:** `ruff` (linting/formatting) and `mypy` (type checking)
+- **Enforcement:** `ruff` (linting/formatting) and `ty` (type checking), with `basedpyright` and `pylint` running only the checks those two do not make
 - **Verification:** Run `make check` before committing to ensure all checks pass
 
-### Library Preferences
+### Dependencies
 
-- **CLI:** `typer` with `rich-argparse` for command-line interfaces
-- **Data Processing:** `polars` over `pandas` for data manipulation
-- **Logging:** Use structured logging with consistent, parseable output
-- **JSON:** `yapic-json` for high-performance JSON processing
-- **Progress Indicators:** `tqdm` or `rich.progress` for long-running tasks
+The package uses only the standard library. Do not add a runtime dependency.
 
 ### CLI Guidelines
 
@@ -131,24 +131,12 @@ This includes login, logout, and token refresh endpoints.
 - **Path Manipulation:** Prefer `pathlib.Path` over `os.path` or string manipulation.
 - **Membership Checks:** Use `set` for membership checks, but be mindful of casting overhead.
 - **Loop Optimization:** Avoid repeated dot notation in tight loops. Cache methods/attributes outside loops.
-- **Module Exports (`__all__`):** Define as a tuple (not list) near the top of the file, below the docstring.
+- **Module Exports (`__all__`):** Define as a tuple (not list) near the top of the file, below the docstring. Omit the parentheses when it fits on one line.
 
 ### Type Hints
 
 - Use modern type hints (Python 3.12+) for all function signatures: `list[str]`, `str | None`, etc.
 - Annotate class attributes and significant variables.
-- **Pydantic Types:** Use numeric convenience types (`NegativeInt`, `NonPositiveFloat`) to enforce constraints.
-- **Annotated Constraints:** Use `typing.Annotated` with `pydantic.Field` for reusable constrained types.
-
-  ```python
-  from typing import Annotated
-  from pydantic import Field, NonNegativeFloat, FiniteFloat
-
-  # Examples of useful patterns:
-  FinitePositiveFloat = Annotated[FiniteFloat, Field(gt=0.0)]
-  Probability = Annotated[NonNegativeFloat, Field(le=1.0)]
-  NonEmptyStr = Annotated[str, Field(min_length=1)]
-  ```
 
 ### Documentation
 
@@ -165,7 +153,7 @@ This includes login, logout, and token refresh endpoints.
 
 ### Adding a Dependency
 
-1. Add it to `pyproject.toml` (under `dependencies` or `optional-dependencies`).
+1. Add it to `pyproject.toml`, under `[project] dependencies` or one of the `[dependency-groups]`: `ci` (nox and pre-commit, for CI's jobs; `dev` includes it), `dev` or `test`. A runtime dependency is not allowed.
 2. Run `uv lock` to update `uv.lock`.
 3. Run `make develop` to sync the virtual environment.
 4. Verify with `make check`.
@@ -178,9 +166,9 @@ This includes login, logout, and token refresh endpoints.
 ### Running Tests
 
 - **All Tests:** `make test`
-- **Specific Test:** `uv run pytest tests/test_specific.py`
-- **With Coverage:** `uv run pytest --cov=src --cov-report=html`
-- **Markers:** `uv run pytest -m slow` (run only slow tests)
+- **Specific Test:** `uv run --group test pytest tests/test_specific.py`
+- **With Coverage:** `uv run --group test pytest --cov=src --cov-report=html`
+- **Markers:** `uv run --group test pytest -m no_ci` (run only the tests marked `no_ci`)
 
 ### Code Quality Checks
 

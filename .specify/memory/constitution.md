@@ -27,7 +27,7 @@ Start simple. Reject speculative complexity.
 - **Language**: defined in `.python-version` and `pyproject.toml`.
 - **Package Manager**: `uv` for dependency management, virtual environments, and lock files.
 - **Linting/Formatting**: `ruff`.
-- **Type Checking**: `mypy` in strict mode.
+- **Type Checking**: `ty`, with the stricter rules set in `ty.toml`. `basedpyright` and `pylint` run only the checks ty and ruff do not make, chosen in `pyrightconfig.json` and `.pylintrc`.
 - **Testing**: `pytest` with coverage reporting.
 - **Pre-commit**: Hooks for code quality, security scanning, type checking, and commit message validation.
 - **CI/CD**: GitHub Actions.

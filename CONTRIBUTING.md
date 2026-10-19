@@ -1,95 +1,53 @@
-<!-- omit in toc -->
+# Contributing
 
-# Regarding contributions
+Contributions are welcome, from a typo fix to a new case the action should handle. Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md). To report a vulnerability, use the private channel in [SECURITY.md](SECURITY.md) rather than an issue.
 
-Welcome! We're happy to have you here. All types of contributions are encouraged and valued.
+## Set up
 
-See the [Table of Contents](#table-of-contents) for different ways to help and details about how this project handles them. Please make sure to read the relevant section before making your contribution. It will make it a lot easier for us maintainers and smooth out the experience for all involved. We look forward to your contributions!
+```bash
+make develop   # sync dependencies and install the git hooks
+```
 
-The project has defined a [code of conduct](CODE_OF_CONDUCT.md) to ensure a welcoming and friendly environment. Please adhere to it in all interactions.
+`make develop` also sets two options in this clone's `.git/config`: `blame.ignoreRevsFile`, and Git LFS when `git-lfs` is installed. It never includes a tracked file as git configuration, because git would then run whatever a checked-out branch put in that file. `blame.ignoreRevsFile` names a tracked file, but git reads only revision IDs from it.
 
-<!-- omit in toc -->
+## Branches and commits
 
-## Table of Contents
+- Fork the repository and branch from a fresh `main`, named `<type>/<short-description>`.
+- Commit subjects are Conventional Commits. The valid types are `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style` and `test`, the description after the colon starts with a lowercase letter, and the whole subject runs to 50 characters at most. The `commit-msg` hooks check the form locally.
+- Keep each commit to one logical change.
+- Bring a branch up to date with `main` by merging, not rebasing, once it has been pushed.
+- After a pull request merges, `pr-catchup.yml` merges `main` into every open branch in this repository that is behind and does not conflict, as a commit titled `chore: merge main into #N`. Pull before you push to such a branch again. It does not reach a branch in a fork.
 
-- [I want to contribute](#i-want-to-contribute)
-  - [Suggesting enhancements](#suggesting-enhancements)
-    - [Before Submitting an Enhancement](#before-submitting-an-enhancement)
-    - [How do I submit a good enhancement suggestion?](#how-do-i-submit-a-good-enhancement-suggestion)
-  - [Your first code contribution](#your-first-code-contribution)
-  - [Contribution workflow](#contribution-workflow)
-  - [Recommended VSCode extensions](#recommended-vscode-extensions)
-- [Creating a release](#creating-a-release)
+## Before you open a PR
 
-## I want to contribute
+```bash
+make check   # tidy, run the pre-commit hooks, then the tests
+```
 
-There are many ways to contribute. Improving the documentation is no less important than improving the code of the library itself. If you find a typo in the documentation or have made improvements, do not hesitate to create a GitHub issue or preferably submit a GitHub pull request.
+The checks under [checks/](checks/) run the same PR-title, PR-body and commit-subject validation that CI runs. For example: `uv run python -m checks.check_pr_title "feat: add a rule"`. On a pull request they post a comment saying what failed and what they advise, and remove it once there is nothing left to say. CI also posts a coverage comment: how many of the lines you changed a test ran. A member or collaborator can comment `/coverage-report` on the pull request to measure it again.
 
-There are many other ways to help. In particular, improving, triaging, and investigating issues or reviewing other developers' pull requests are valuable contributions that decrease the burden on the project maintainers.
+Write Markdown prose as one line per paragraph. The `unwrap-markdown-prose-py` hook reflows a hard-wrapped paragraph in place and stops the commit so you can see what changed.
 
-Another way to contribute is to report issues you're facing, and give a "thumbs up" on issues that others reported and that are relevant to you. It also helps us if you spread the word: reference the project from your blog and articles, link to it from your website, or simply star it in GitHub to say "I use it".
+A change to `action.yml` or to `.github/workflows/freeze-pr-links.yml` has to keep every property [SECURITY.md](SECURITY.md) lists; `tests/test_workflows.py` and `tests/test_workflow_injection.py` pin them.
 
-### Suggesting enhancements
+## Opening the PR
 
-This section guides you through submitting an enhancement suggestion, **including completely new features and minor improvements to existing functionality**. Following these guidelines will help maintainers and the community understand your suggestion and find related suggestions.
+- Merges are squash-only, and the PR title becomes the squash commit, so it must be a valid Conventional Commit. A single-commit PR squashes to that commit's subject instead, so keep the two identical.
+- Fill in the [PR template](.github/pull_request_template.md). Summary and Testing always apply, and the checks fail without them.
+- Link a file in the PR body or a comment to the head branch, not to a commit. The branch is deleted on merge, and this repository's own action then rewrites each such link to the head commit.
+- Open as a draft while the change is still moving.
+- Read what a merge into `main` needs with `gh api repos/michen00/freeze-pr-links/rules/branches/main`. The ruleset `main-protect` requires `Run CI (3.13)` and `checks` to pass, one approving review and every review thread resolved. Dependabot's patch and minor updates, in every ecosystem, are armed for auto-merge. A major update waits for a person, and so does any pull request labeled `do not auto-merge`.
 
-#### Before Submitting an Enhancement
-
-- Make sure that you are using the latest version.
-- Read the documentation carefully and find out if the functionality is already covered, maybe by an individual configuration.
-- Find out whether your idea fits with the scope and aims of the project.
-
-#### How do I submit a good enhancement suggestion?
-
-- Use a **clear and descriptive title** for the issue to identify the suggestion.
-- Provide a **step-by-step description of the suggested enhancement** in as many details as possible.
-- **Describe the current behavior** and **explain which behavior you expected to see instead** and why. At this point you can also tell which alternatives do not work for you.
-- You may want to **include screenshots and animated GIFs** which help you demonstrate the steps or point out the part which the suggestion is related to.
-- **Explain why this enhancement would be useful** to most users. You may also want to point out other projects that solved it better and could serve as inspiration.
-
-### Your first code contribution
-
-Before opening a Pull Request (PR), please consider the following guidelines:
-
-- Please make sure that the code builds perfectly fine on your local system.
-- The PR must meet the code standards and conventions of the project.
-- Explanatory comments related to code functions are strongly recommended.
-
-And finally, when you are satisfied with your changes, open a new PR.
-
-### Contribution workflow
-
-Here’s how we suggest you go about proposing a change to this project:
-
-1. [Fork this project](https://help.github.com/articles/fork-a-repo/) to your account.
-2. [Create a branch](https://help.github.com/articles/creating-and-deleting-branches-within-your-repository) for the change you intend to make.
-3. Make your changes to your fork.
-4. [Send a pull request](https://help.github.com/articles/using-pull-requests/) from your fork’s branch to our `main` branch.
-
-Using the web-based interface to make changes is fine too, and will help you by automatically forking the project and prompting to send a pull request too.
-
-#### Creating a release
+## Creating a release
 
 Releases are cut with the tooling in [RELEASING.md](RELEASING.md), which is the source of truth. In short:
 
-1. `make release-pr VERSION=X.Y.Z` — bumps the version, re-locks `uv.lock`, promotes the `## [Unreleased]` section of `CHANGELOG.md`, and opens the release PR.
+1. `make release-pr VERSION=X.Y.Z` bumps the version, re-locks `uv.lock`, promotes the `## [Unreleased]` section of `CHANGELOG.md`, and opens the release PR.
 1. Merge that PR.
-1. `make release-tag VERSION=X.Y.Z` — creates and pushes `vX.Y.Z`, which triggers the release workflow.
+1. `make release-tag VERSION=X.Y.Z` creates and pushes `vX.Y.Z`, which triggers the release workflow.
 
 Do not run `gh release create` by hand; the workflow does it, and doing both creates the release twice.
 
-### Recommended VSCode extensions
+## Editor
 
-We recommend installing the following VSCode extensions to encourage consistent code style and formatting:
-
-- [Even Better TOML](https://marketplace.visualstudio.com/items?itemName=tamasfe.even-better-toml)
-- [GitHub Actions](https://marketplace.visualstudio.com/items?itemName=GitHub.vscode-github-actions)
-- [markdownlint](https://marketplace.visualstudio.com/items?itemName=DavidAnson.vscode-markdownlint)
-- [MyPy Type Checker](https://marketplace.visualstudio.com/items?itemName=ms-python.mypy-type-checker)
-- [Prettier - Code formatter](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode)
-- [Pylint](https://marketplace.visualstudio.com/items?itemName=ms-python.pylint)
-- [Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python)
-- [Ruff](https://marketplace.visualstudio.com/items?itemName=charliermarsh.ruff)
-- [ShellCheck](https://marketplace.visualstudio.com/items?itemName=timonwong.shellcheck)
-- [shfmt](https://marketplace.visualstudio.com/items?itemName=mkhl.shfmt)
-- [YAML](https://marketplace.visualstudio.com/items?itemName=redhat.vscode-yaml)
+[.vscode/extensions.json](.vscode/extensions.json) recommends the extensions that match the hooks, including ty, Ruff, Pylint and markdownlint.

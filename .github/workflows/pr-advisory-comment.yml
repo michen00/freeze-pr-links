@@ -1,0 +1,113 @@
+---
+name: PR advisory comment
+
+# Posts what the mechanical checks found as one comment on the pull request: the errors
+# that turned the `checks` job red, then the warnings that only advise. The comment is
+# updated as the pull request changes and deleted once nothing is left to say.
+#
+# The errors lead the comment although each is already a red required check, so a
+# red `checks` row is explained on the conversation rather than only in a job log.
+#
+# This exists as its own workflow for one reason: on a workflow_run event GitHub takes
+# the definition from the default branch, never from the pull request. The write scope
+# below is therefore out of reach of the branch it comments on, which is not true of
+# any job inside pr-mechanical-checks.yml -- a pull_request run resolves the PR's own
+# merge commit, so a branch author writes every job in that file. The cost is that this
+# file takes effect only once it is on the default branch, so a change to it is verified
+# after the fact; tests/test_pr_advisory_comment_workflow.py asserts the wiring instead.
+
+on:
+  workflow_run:
+    workflows: ['PR mechanical checks']
+    types: [completed]
+
+permissions:
+  contents: read
+  # Downloading an artifact produced by another run.
+  actions: read
+  # The comment itself.
+  pull-requests: write
+
+# Keyed on the head rather than on the pull request number, which the workflow_run
+# payload does not carry for a fork. cancel-in-progress stays false: the upsert is a
+# read-modify-write, and a canceled run that has listed the comments but not yet
+# written is the one state that would leave a duplicate.
+concurrency:
+  group: >-
+    pr-advisory-comment-${{ github.event.workflow_run.head_repository.full_name }}-${{
+    github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # No `ref:`, which on workflow_run resolves the default branch rather than the
+      # pull request, so the script this runs is the reviewed one. That is the whole
+      # security property, and it is a default rather than a setting, so a future edit
+      # adding `ref:` here would quietly undo it.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # continue-on-error, because the gate skips the upload for a bot-authored pull
+      # request and there is then nothing to download. That is the ordinary case, not a
+      # failure, and it is told apart from a real one by the outcome check below.
+      - name: Download the findings
+        id: findings
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: pr-advisory-findings
+          path: ${{ runner.temp }}/advisory
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Say why nothing was posted
+        if: steps.findings.outcome != 'success'
+        run: |
+          echo "no findings artifact on this run; the gate skips the upload for a"
+          echo "bot-authored pull request, which is the expected reason to be here"
+      # Resolved here rather than read from the artifact, and that distinction is
+      # load-bearing. A fork's pull_request run supplies the gate's own definition, so a
+      # number carried in the artifact is attacker-controlled and would let one pull
+      # request post a comment onto another. GitHub records head_sha for the run, and
+      # the commits/{sha}/pulls endpoint answers from the base repository's own view.
+      #
+      # The digit guard is belt and braces on an API answer that should already be a
+      # number: PR_NUMBER is interpolated into a REST path by the script below.
+      - name: Resolve which pull request this run belongs to
+        id: pr
+        if: steps.findings.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          number="$(gh api "repos/${REPO}/commits/${HEAD_SHA}/pulls" \
+            --jq '[.[] | select(.state == "open") | .number] | first // empty')"
+          case "${number}" in
+            "") echo "no open pull request for ${HEAD_SHA}; nothing to comment on"
+                exit 0 ;;
+            *[!0-9]*) echo "::error::refusing a non-numeric PR number: ${number}"
+                exit 1 ;;
+          esac
+          echo "number=${number}" >>"${GITHUB_OUTPUT}"
+      # continue-on-error keeps a transient `gh` failure from reddening anything a person
+      # reads as a merge signal, and the warning keeps the failure from hiding inside a
+      # green job, since this surface's whole signal is whether a comment exists.
+      - name: Post or clear the findings
+        if: steps.pr.outputs.number != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          PR_ERRORS_DIR: ${{ runner.temp }}/advisory/errors
+          PR_WARNINGS_DIR: ${{ runner.temp }}/advisory/warnings
+        run: |
+          if ! bash .github/scripts/pr-findings-comment.sh; then
+            echo "::warning::the findings comment failed to post or clear;" \
+              "the PR conversation may be stale"
+            exit 1
+          fi

@@ -5,9 +5,8 @@ ever sees it, so quoting cannot save it. Anything an outside author controls -- 
 request title, a branch name, a comment body -- has to reach the shell through `env:`
 or through a file instead.
 
-This matters more here than in an ordinary repository: the workflows shipped by
-`manifest.txt` hold `contents: write` and `pull-requests: write`, and they are copied
-into every project created from this one. A hole introduced here propagates.
+This matters because workflows in this tree run with write scopes, some of them under
+`pull_request_target`, so an injected value would run with those scopes.
 
 The tree already satisfies this everywhere, which is the moment worth locking it in:
 the test is green on the day it lands, so it can only ever fail on something newly
@@ -34,16 +33,20 @@ _EXPRESSION = re.compile(r'\$\{\{(.*?)\}\}', re.DOTALL)
 # Contexts the runner fills in itself, which no pull request can influence. This is an
 # allowlist of expressions rather than of files: a second interpolation in the same
 # step still has to be named here, and naming one is a deliberate act with a reason.
-_RUNNER_PROVIDED = frozenset({'github.action_path'})
+# Empty while no definition here needs one; `github.action_path`, a composite action's
+# own path, is the usual first entry.
+_RUNNER_PROVIDED: frozenset[str] = frozenset()
 
 
 def _definition_files() -> list[Path]:
     """Return every workflow and composite action definition in the tree."""
-    # `*.y*ml` rather than `*.yml`: a project derived from this one may reach for the
-    # `.yaml` spelling, and a scan that quietly skipped those would still pass.
+    # `*.y*ml` rather than `*.yml`: GitHub also reads the `.yaml` spelling, and a scan
+    # that quietly skipped those would still pass.
     workflows = sorted((_ROOT / '.github/workflows').glob('*.y*ml'))
     actions = sorted((_ROOT / '.github/actions').glob('*/action.y*ml'))
-    return workflows + actions
+    # The action this repository publishes sits at the root, where `uses:` finds it.
+    published = sorted(_ROOT.glob('action.y*ml'))
+    return workflows + actions + published
 
 
 def _run_blocks(node: object) -> Iterator[str]:
@@ -79,21 +82,14 @@ def test_no_run_block_interpolates_an_outside_value(path: Path) -> None:
 
 
 def test_the_scan_covers_every_definition_in_the_tree() -> None:
-    """A guard that silently stopped finding files would pass forever."""
+    """The scan finds every workflow and composite-action definition in the tree."""
     found = {path.relative_to(_ROOT).as_posix() for path in _definition_files()}
     tracked = {
         path
         for path in (_ROOT / '.github').rglob('*.y*ml')
         if path.parent.name == 'workflows' or path.stem == 'action'
-    }
+    } | set(_ROOT.glob('action.y*ml'))
     assert found == {path.relative_to(_ROOT).as_posix() for path in tracked}
-    # Deliberately not a floor of ten, as the source of this test uses: a project
-    # created from this one receives a subset of these definitions, so any specific
-    # count would be wrong there. The set equality above is what carries the value;
-    # this only catches the scan finding nothing at all.
+    # The set equality above is what carries the value; this only catches the scan
+    # finding nothing at all.
     assert found
-
-
-def test_the_allowlist_holds_only_values_a_pull_request_cannot_reach() -> None:
-    """github.action_path is the runner's own path to the checked-out action."""
-    assert {'github.action_path'} == _RUNNER_PROVIDED
