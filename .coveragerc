@@ -2,6 +2,15 @@
 branch = True
 source_pkgs = freeze_pr_links, checks, scripts
 
+; The test session installs the package into its own environment, so the data
+; names files under .nox/<session>/lib/python*/site-packages/. Combining the
+; workers' data maps them back to src/, so the report and the coverage comment
+; name the files a diff touches and link files that exist.
+[paths]
+source =
+    src/
+    */site-packages/
+
 [report]
 ; Regexes for lines to exclude from consideration
 exclude_also =
