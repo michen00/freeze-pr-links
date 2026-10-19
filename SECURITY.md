@@ -4,6 +4,8 @@
 
 Fixes go to the latest release. Every `vX.Y.Z` tag stays where it was published: a ruleset over `refs/tags/v*.*.*` blocks updating or deleting it for every actor, with no bypass, and a second ruleset over `refs/tags/v*` blocks deletion.
 
+Release tags are annotated and GPG-signed with the release key, and each release's wheel, sdist and checksum file carry a Sigstore signature and a GPG signature. [RELEASING.md](RELEASING.md#verifying-a-release) shows how to verify each one.
+
 ## Reporting a vulnerability
 
 Use GitHub's private vulnerability reporting: [report a vulnerability](https://github.com/michen00/freeze-pr-links/security/advisories/new). Please do not open a public issue for a security report.

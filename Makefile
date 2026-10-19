@@ -311,39 +311,38 @@ push-prod: build ## Publish the package to PyPI using uv
 ## releases ##
 ##############
 
-# Release flow: see RELEASING.md, which is the source of truth. In short:
-#   1. make release-pr VERSION=0.0.1   # bumps, re-locks, promotes CHANGELOG, opens a PR
-#   2. <merge the PR>
-#   3. make release-tag VERSION=0.0.1  # pushes v0.0.1, firing .github/workflows/release.yml
-#
-# These targets are thin wrappers around scripts/; the behavior lives there, not here.
-#
-# VERSION may be given with or without a leading 'v' (0.0.1 or v0.0.1); the 'v' is
-# stripped before use, since the tag is always v$(VERSION).
-_RELEASE_VERSION := $(VERSION:v%=%)
-_REQUIRE_VERSION = @if [ -z "$(VERSION)" ]; then \
-    echo "$(BOLD)$(RED)Error: VERSION is required$(_COLOR) (e.g. $(MAKECMDGOALS) VERSION=0.0.1)" >&2; \
-    exit 1; \
-fi
+# Release flow: see RELEASING.md. Release PR opens the release PR by itself when a
+# release-worthy commit lands; these targets start it by hand and approve what
+# waits on the protected `release` environment.
 
 .PHONY: version
 version: ## Print the version declared in pyproject.toml
 	@python3 -c "import pathlib,tomllib;print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])"
 
 .PHONY: release-pr
-release-pr: ## Open a release PR promoting [Unreleased] to VERSION (usage: make release-pr VERSION=0.0.1)
-	$(_REQUIRE_VERSION)
-	@./scripts/release-pr.sh "$(_RELEASE_VERSION)"
+release-pr: ## Run the Release PR workflow (usage: make release-pr [VERSION=1.2.3]; omit to infer)
+	@if [ -n "$(VERSION)" ]; then \
+        gh workflow run release-pr.yml --ref main -f version=$(VERSION); \
+    else \
+        echo "No VERSION given; inferring from conventional commits."; \
+        gh workflow run release-pr.yml --ref main; \
+    fi
 
-.PHONY: release-tag
-release-tag: ## Create and push vX.Y.Z, triggering the release workflow (usage: make release-tag VERSION=0.0.1)
-	$(_REQUIRE_VERSION)
-	@./scripts/release-tag.sh "$(_RELEASE_VERSION)"
+.PHONY: release-pr-watch
+release-pr-watch: ## Watch the latest workflow run (run after make release-pr)
+	@gh run watch
 
-.PHONY: promote-changelog
-promote-changelog: ## Promote [Unreleased] to a dated VERSION section (usage: make promote-changelog VERSION=0.0.1)
-	$(_REQUIRE_VERSION)
-	@./scripts/promote-changelog.sh "$(_RELEASE_VERSION)"
+.PHONY: release-status
+release-status: ## Show latest release, any open release PR, and any run awaiting approval
+	@sh scripts/release/approve.sh --status
+
+.PHONY: release-approve
+release-approve: ## Approve the waiting release (usage: make release-approve [YES=1] to skip the prompt)
+	@if [ -n "$(YES)" ]; then \
+        sh scripts/release/approve.sh --yes; \
+    else \
+        sh scripts/release/approve.sh; \
+    fi
 
 ##############
 ## building ##

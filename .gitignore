@@ -1,5 +1,5 @@
 #######################################################################################################
-# This .gitignore is composed of the following templates (retrieved 2026-10-18):
+# This .gitignore is composed of the following templates (retrieved 2026-10-19):
 # Language / runtime / ecosystem
 # - https://raw.githubusercontent.com/github/gitignore/main/community/Python/JupyterNotebooks.gitignore
 # - https://raw.githubusercontent.com/github/gitignore/main/Node.gitignore
@@ -1541,3 +1541,8 @@ src/*/bin/**/*.py[cod]
 .specify/init-options.json
 .specify/scripts/bash/*.sh
 .specify/templates/*.md
+
+# The Visual Studio template above ignores every `release/` directory. These hold
+# the release scripts and their tests.
+!scripts/release/
+!tests/release/

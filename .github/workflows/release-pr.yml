@@ -1,0 +1,339 @@
+---
+name: Release PR
+
+# Two triggers that want opposite behavior when there is nothing to release.
+# A push is speculative, and the version alone cannot decide whether it is
+# worth acting on: every conventional type bumps at least the patch, so a
+# `chore` or `docs` merge moves the version exactly as a `fix` does. What
+# separates them is the group cliff.toml parsed the commit into, which is what
+# the worthiness gate below reads. Ending quietly is the ordinary outcome. A
+# dispatch is a human asking for a release, so it skips that gate entirely and
+# fails loudly where a green run that did nothing would read as success. The
+# `stop` helper is that one decision, applied at each place that reaches it.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (0.1.0 or v0.1.0); leave empty to infer'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-pr
+  cancel-in-progress: false
+
+env:
+  # Kept in step with .python-version.
+  PYTHON_VERSION: '3.13'
+
+jobs:
+  # Split from the work below so that "nothing to release" shows up as a
+  # skipped job rather than a green one that quietly did nothing -- and so the
+  # skip is expressed once, in `needs`, instead of as an `if:` repeated onto
+  # every step where forgetting one would run it anyway.
+  resolve:
+    # Merging a release PR is itself a push to main, and at that moment the tag
+    # does not exist yet -- release-tag.yml is waiting on the `release`
+    # environment approval -- so an unguarded run would infer the same version
+    # again and prepare a second PR for the release just merged. The repository
+    # squash-merges, so the PR title becomes the squash subject and matching it
+    # here is reliable.
+    if: >-
+      github.event_name != 'push' ||
+      !startsWith(github.event.head_commit.message, 'chore(release): prepare')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Nothing in this job writes. The workflow-level block is what the job
+    # below needs; narrowing here keeps the read-only half read-only.
+    permissions:
+      contents: read
+    outputs:
+      release: ${{ steps.version.outputs.release }}
+      tag: ${{ steps.version.outputs.tag }}
+      branch: ${{ steps.version.outputs.branch }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Floating, as changelog-autoupdate.yml's is: install-action resolves an
+      # unversioned tool from manifests baked into its own release. git-cliff
+      # 2.14 drops a commit whose whole diff is .git-blame-ignore-revs
+      # (orhun/git-cliff#1643), but cliff.toml already skips every commit that
+      # could be, and stamp-changelog.sh refuses a regeneration that loses a
+      # released entry.
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
+      - name: Resolve release version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            speculative=1
+          else
+            speculative=0
+          fi
+
+          stop() {
+            if [ "$speculative" -eq 1 ]; then
+              echo "release=false" >>"$GITHUB_OUTPUT"
+              echo "::notice::$1"
+              exit 0
+            fi
+            echo "::error::$1"
+            exit 1
+          }
+
+          # A release PR that has merged but whose tag has not been minted yet
+          # leaves the repository mid-release: the tag is waiting on the
+          # `release` environment approval, and until it exists
+          # --bumped-version keeps reporting the pending version. A fix landing
+          # inside that approval window would otherwise prepare a second PR for
+          # a release already on its way out. Parentheses are literal in a
+          # basic regular expression, so both patterns below match the subject
+          # as written.
+          #
+          # This also latches if an approval is rejected, because the prepared
+          # version then never gets a tag. That is deliberate -- a stuck
+          # release should be finished or abandoned before another is prepared
+          # on top of it. The way out is the manual fallback in RELEASING.md:
+          # tag main by hand, which both publishes that release and clears this
+          # check.
+          #
+          # No `|| true` on the lookup. Finding nothing already exits 0 and
+          # prints nothing, so suppression would only ever catch a real
+          # failure -- and a failed lookup reads as "no release in flight",
+          # skipping the guard below and preparing a second PR for the
+          # release already on its way out. Let `set -e` stop the step.
+          prep="$(git log -1 --format=%s --grep='^chore(release): prepare v')"
+          if [ -n "$prep" ]; then
+            pending_raw="$(printf '%s\n' "$prep" |
+              sed -n 's/^chore(release): prepare \([^ ]*\).*/\1/p')"
+            if pending="$(scripts/release/parse-version.sh \
+              "$pending_raw" --require-v 2>/dev/null)"; then
+              if ! git rev-parse -q --verify "refs/tags/$pending" >/dev/null; then
+                stop "$pending is prepared but not tagged yet; a release is in flight."
+              fi
+            fi
+          fi
+
+          raw="$RELEASE_VERSION_INPUT"
+
+          if [ -z "$raw" ]; then
+            # Derive the next semver from conventional commits since the latest tag.
+            raw="$(git cliff --bumped-version)"
+            echo "Inferred version from conventional commits: $raw"
+          fi
+
+          if ! tag="$(scripts/release/parse-version.sh "$raw")"; then
+            echo "::error::Invalid version '$raw'. Use X.Y.Z or vX.Y.Z."
+            exit 1
+          fi
+
+          # With no releasable commits, --bumped-version echoes the current tag.
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            stop "Tag $tag already exists. Nothing to release."
+          fi
+
+          # Reaching here means the version moved, which is a weaker signal
+          # than it looks: every conventional type bumps at least the patch, so
+          # every Dependabot bump would propose its own release. A speculative
+          # run therefore needs an actual reason, and only a human asking gets
+          # to skip this.
+          #
+          # cliff.toml is the only parser in play. Its commit_parsers already
+          # decide what each commit is, and --context hands that verdict back
+          # per commit, so nothing here re-implements any of it -- including
+          # the skip rules, which drop chore, docs, ci and the rest before they
+          # are ever seen. Groups are matched on the ordering index cliff.toml
+          # assigns rather than the label, which carries an emoji: 00 features,
+          # 01 fixes, 02 performance, 03 revert. Change that set to change the
+          # policy, and change it with cliff.toml's numbering.
+          #
+          # --unreleased still hands back the previous release alongside the
+          # unreleased one, so the null-version entry has to be selected or
+          # every fix in the last release is counted again and the gate never
+          # closes.
+          if [ "$speculative" -eq 1 ]; then
+            worthy="$(git cliff --unreleased --context |
+              jq '[.[] | select(.version == null) | .commits[]
+                   | select(.breaking or ((.group // "") | test("^<!-- (00|01|02|03) -->")))]
+                  | length')"
+            if [ "$worthy" -eq 0 ]; then
+              stop "Nothing since the last release is worth one; not proposing $tag."
+            fi
+            echo "Release-worthy commits behind $tag: $worthy"
+          fi
+
+          {
+            echo "release=true"
+            echo "tag=$tag"
+            echo "branch=release/$tag"
+          } >>"$GITHUB_OUTPUT"
+
+  release-pr:
+    needs: resolve
+    if: needs.resolve.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          # Off: a release runs rarely, and setup-uv's default key would leave
+          # out the cache buster tests/test_workflow_caches.py requires.
+          enable-cache: false
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # Stamps the pending version as its own section rather than refreshing
+      # Unreleased. Refreshing is what changelog-autoupdate.yml does, but it is
+      # wrong during a release: the moment the tag exists, `git cliff
+      # --unreleased` stops reporting the commits it covers, and any entry that
+      # only ever lived under Unreleased is dropped by the next run with nowhere
+      # to go.
+      - name: Stamp the release into the changelog
+        env:
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+        run: scripts/release/stamp-changelog.sh "$RELEASE_TAG"
+
+      # The repository's own Markdown hooks format the regenerated file. The
+      # first pass may rewrite it and so exit non-zero; the second must find
+      # nothing left to change.
+      - name: Format and validate the changelog
+        run: |
+          uv run --locked --only-group ci pre-commit run --files CHANGELOG.md ||
+            uv run --locked --only-group ci pre-commit run --files CHANGELOG.md
+
+      # build-artifacts.sh refuses a tag whose commit builds another version,
+      # so the bump travels with the release PR, and uv.lock with it, since
+      # `uv run --locked` fails on a lock that names the old version.
+      - name: Bump the package version
+        env:
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          uv version "${RELEASE_TAG#v}"
+          uv lock
+
+      # Consumers copy the README snippet verbatim, so it has to name the version
+      # being released.
+      - name: Bump the README pin
+        env:
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+        run: scripts/release/bump-pins.sh "$RELEASE_TAG" README.md
+
+      - name: Validate the bumped README
+        run: uv run --locked --only-group ci pre-commit run --files README.md
+
+      - name: Run tests
+        run: uv run --locked --only-group ci nox -s test
+
+      # The body is a Markdown file rather than an inline block, so that
+      # yamllint's column limit does not force hard-wrapped paragraphs into a
+      # pull request body, where GitHub renders each newline. As a file it is a
+      # document the repository's own Markdown hooks lint.
+      #
+      # Substituted rather than interpolated, because `body-path` reads the file
+      # literally. The tag has already been through parse-version.sh, so it is
+      # three dot-separated runs of digits and carries no sed metacharacter.
+      #
+      # The markdownlint directive is dropped here rather than shipped: MD041 is
+      # a whole-document rule and that file is a fragment, so the directive is
+      # lint scaffolding, not content. The blank line it leaves goes with it.
+      - name: Render the release PR body
+        id: body
+        env:
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          rendered="$RUNNER_TEMP/release-pr-body.md"
+          sed "s/@RELEASE_TAG@/${RELEASE_TAG}/g" .github/release-pr-body.md |
+            sed '/^<!-- markdownlint-configure-file/d' |
+            awk 'NF || seen { seen = 1; print }' >"$rendered"
+          echo "path=$rendered" >>"$GITHUB_OUTPUT"
+
+      # sign-commits makes the action commit through the API, which GitHub
+      # signs, so the release PR's commit is verified like every other.
+      - name: Create release PR
+        id: cpr
+        uses: peter-evans/create-pull-request@v8
+        with:
+          branch: ${{ needs.resolve.outputs.branch }}
+          base: main
+          delete-branch: true
+          sign-commits: true
+          title: 'chore(release): prepare ${{ needs.resolve.outputs.tag }}'
+          commit-message: 'chore(release): prepare ${{ needs.resolve.outputs.tag }}'
+          add-paths: |
+            CHANGELOG.md
+            README.md
+            pyproject.toml
+            uv.lock
+          body-path: ${{ steps.body.outputs.path }}
+
+      # A release PR carries its version in the branch name, and release-tag.yml
+      # derives the tag it mints from that name -- deliberately, because a
+      # same-repo `release/*` branch is not attacker-controlled the way a PR
+      # title or body is. So the branch cannot be made stable, and a version
+      # that moves between runs (a feat landing while a patch PR is open) opens
+      # a second PR rather than updating the first. The superseded one is not
+      # merely redundant: merging it would tag the older version from a commit
+      # that no longer describes the release. Close it here.
+      #
+      # The listing is read into a variable first rather than piped. Piped, a
+      # failed query would reach the loop as empty input and read as "nothing
+      # superseded", closing nothing and saying so; assigned, `set -e` kills the
+      # step instead.
+      #
+      # `isCrossRepository` narrows the listing to the same-repo branches this
+      # workflow actually owns, matching the trust check release-tag.yml makes
+      # before it will tag one. The branch name alone does not: a fork PR whose
+      # head happens to start with `release/` would otherwise be closed as
+      # superseded -- with a misleading comment, and `--delete-branch` aimed at
+      # a contributor's branch -- by the next release this workflow prepares.
+      - name: Close superseded release PRs
+        if: steps.cpr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          KEEP_BRANCH: ${{ needs.resolve.outputs.branch }}
+          KEEP_TAG: ${{ needs.resolve.outputs.tag }}
+          NEW_PR: ${{ steps.cpr.outputs.pull-request-number }}
+        run: |
+          set -euo pipefail
+          open_release_prs="$(gh pr list --state open --base main \
+            --json number,headRefName,isCrossRepository \
+            --jq '.[] | select(.isCrossRepository | not)
+                      | select(.headRefName | startswith("release/"))
+                      | "\(.number)\t\(.headRefName)"')"
+
+          while IFS="$(printf '\t')" read -r number branch; do
+            if [ -z "$number" ] || [ "$branch" = "$KEEP_BRANCH" ]; then
+              continue
+            fi
+            echo "::notice::Closing superseded release PR #${number} (${branch})."
+            gh pr close "$number" --delete-branch \
+              --comment "Superseded by #${NEW_PR}, preparing ${KEEP_TAG}."
+          done <<<"$open_release_prs"

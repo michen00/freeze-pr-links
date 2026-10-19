@@ -1,0 +1,85 @@
+---
+name: Release smoke
+
+# Runs a published release of the action, which nothing before a release can:
+# the tag does not exist until the release is cut. On a published release it
+# runs that tag; on a dispatch or the weekly schedule it runs the newest release,
+# as a canary against tag rot. `uses:` takes no expression, so the tag is checked
+# out and run from a path.
+#
+# The target is the pull request merged into the default branch most recently.
+# freeze-pr-links.yml froze its links when it merged, so this run finds them
+# already pinned and writes nothing. It still exercises everything a consumer's
+# run does: resolving the pull request, listing the tree at its head, running the
+# transform over the body, and sweeping every comment.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 12 * * 1' # Mondays 12:00 UTC
+
+permissions:
+  contents: read
+  # The action edits only text that still links the head branch, which a pull
+  # request frozen at merge no longer does; it still needs the scope to look.
+  pull-requests: write
+
+concurrency:
+  group: release-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve the release and the target pull request
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          out() { echo "$1" >>"$GITHUB_OUTPUT"; }
+          tag="${EVENT_TAG:-}"
+          if [ -z "$tag" ]; then
+            if ! tag="$(gh release view --repo "$REPO" \
+              --json tagName --jq .tagName 2>/dev/null)"; then
+              echo "::notice::No release has been published yet; nothing to smoke-test."
+              out "run=false"
+              exit 0
+            fi
+          fi
+          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Unexpected release tag: $tag"
+            exit 1
+          fi
+          default_branch="$(gh repo view "$REPO" \
+            --json defaultBranchRef --jq .defaultBranchRef.name)"
+          pr="$(gh pr list --repo "$REPO" --state merged --base "$default_branch" \
+            --limit 1 --json number --jq '.[0].number // empty')"
+          if ! [[ "$pr" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::No merged pull request to run against"
+            exit 1
+          fi
+          echo "::notice::Running $tag against #$pr"
+          out "run=true"
+          out "tag=$tag"
+          out "pr=$pr"
+
+      - name: Check out the release
+        if: steps.target.outputs.run == 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.target.outputs.tag }}
+          path: ._released
+          persist-credentials: false
+
+      - name: Run the released action
+        if: steps.target.outputs.run == 'true'
+        uses: ./._released
+        with:
+          pr-number: ${{ steps.target.outputs.pr }}

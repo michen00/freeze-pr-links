@@ -1,124 +1,91 @@
 # Releasing
 
-This is the runbook for cutting a release. The flow is three commands with a human review in the middle, and it produces exactly one artifact: a **GitHub Release** for the tag.
+Releases are cut by the maintainer. Contributors do not need anything here; see [CONTRIBUTING.md](CONTRIBUTING.md) instead.
 
-It does **not** publish to PyPI. `make push-test` (TestPyPI) and `make push-prod` (PyPI) are deliberately left separate and manual, so a release tag can never push a distribution to a public index by accident. If a release also needs to go to an index, run those targets yourself after the tag lands.
+The flow is automated except for two approvals, which are deliberate: they are what stands between a merged pull request and a tag signed with the CI release key. A release publishes a GitHub Release with the `freeze-pr-links` command as a wheel and an sdist, a checksum file, and Sigstore and GPG signatures for all three. Consumers of the action use the signed tag itself. Nothing is published to PyPI; `make push-test` and `make push-prod` stay manual.
 
-## The flow
+## Default flow
 
-```text
-make release-pr VERSION=X.Y.Z
-  -> bump [project].version in pyproject.toml
-  -> re-lock uv.lock so it agrees with the new version
-  -> refresh CHANGELOG.md, promote [Unreleased] to [X.Y.Z] - YYYY-MM-DD
-  -> push release/vX.Y.Z and open a PR
+1. **Release PR** (`.github/workflows/release-pr.yml`) opens the release PR by itself when a commit worth releasing lands on `main`. Every Conventional Commit type bumps at least the patch version, so the version cannot decide that alone; the workflow counts the commits `cliff.toml` puts in its features, fixes, performance and revert groups, plus anything marked breaking. Run the workflow by hand, or `make release-pr`, to choose the version or to release a batch with none of those; a manual run skips that check. Leave `version` empty to derive it with `git cliff --bumped-version`, or pass `X.Y.Z` or `vX.Y.Z`. The pull request stamps the version into `CHANGELOG.md`, `pyproject.toml`, `uv.lock` and the README's usage snippet, and its commit is signed by GitHub.
+1. **Start its checks.** GitHub starts no workflow for a pull request that the default token opened. Mark the release PR as a draft and then ready for review again, and the required checks run.
+1. Review and merge it (`chore(release): prepare vX.Y.Z`).
+1. **Approve the release.** Run `make release-approve`. It finds the waiting **Release Tag** run, shows the tag it will create and the commit that tag will point at, and asks you to confirm. It then waits for the **Release Publish** run that the new tag dispatches and approves that too. Each run can also be approved from its page on GitHub. Rejecting the first approval leaves no tag behind.
+1. **Release Tag** (`.github/workflows/release-tag.yml`) runs when a `release/*` branch from this repository merges into `main`, and waits on the protected `release` environment. Once approved, it creates a GPG-signed annotated tag, verifies it, pushes it, and dispatches **Release Publish**.
+1. **Release Publish** (`.github/workflows/release-publish.yml`) checks out the tag and builds the distributions. `scripts/release/build-artifacts.sh` refuses a tag whose commit builds another version. The workflow then signs every artifact and publishes them, with the version's `CHANGELOG.md` section as the release notes. It waits on the same environment, so it needs an approval of its own.
+1. **Release smoke** (`.github/workflows/release-smoke.yml`) runs the published tag against the pull request merged most recently, as a consumer's workflow would, and again every Monday against the newest release.
 
-review and merge the PR       <- the only human gate
+A release that is never approved waits. There is no timeout and no reminder, so a merged release PR can sit indefinitely; `make release-status` shows whether that has happened.
 
-make release-tag VERSION=X.Y.Z
-  -> create and push the tag vX.Y.Z
-  -> .github/workflows/release.yml builds the distribution and
-     creates the GitHub Release
-```
-
-## Before you start
-
-Be on an up-to-date, green `main`, with a working tree that has nothing in it, and with the GitHub CLI authenticated (both scripts shell out to `gh`).
+## Checking release status
 
 ```bash
-git switch main
-git pull --ff-only origin main
-make check
-gh auth status
+make release-status   # latest tag, any open release PR, any run awaiting approval
+make release-approve  # approve the waiting runs after confirming what will be tagged
 ```
 
-Pick the version with [PEP 440](https://peps.python.org/pep-0440/) / semver in mind. Pass it as `X.Y.Z` with no leading `v`; the `v` prefix belongs to the tag, not to the version recorded in `pyproject.toml`.
+Both read the repository through `gh` and need no other local state. `make release-approve` does nothing when no run is waiting, rather than guessing which run you meant. It approves a Release Publish run only when the run was dispatched on `main`, as Release Tag does, or started by a push of the tag it names, because the publish job also holds the release key.
 
-## Step 1: open the release PR
+## Why Release PR sometimes does nothing
+
+**Release PR** refuses to prepare a second release while the last prepared version is still untagged: on a push it says so and stops, and a manual run fails. That covers the approval window, in which a `fix` merged while **Release Tag** waits would otherwise propose a duplicate PR for the version already on its way out. It also holds when an approval is rejected, since that leaves a prepared version with no tag; clear it with the manual fallback below, which both publishes that release and satisfies the check.
+
+If the version moves while a release PR is open, such as a `feat` landing on top of a pending patch, the next run opens a PR for the new version and closes the superseded one. **Release Tag** reads the version it creates from the `release/*` branch name, so leaving the stale PR open would leave a merge path that tags the wrong version.
+
+## Manual fallback
+
+1. Tag and push from `main` by hand, signed:
+   - `git switch main && git pull`
+   - `git tag -a vX.Y.Z -m vX.Y.Z -s`
+   - `git push origin vX.Y.Z`
+1. The tag push starts **Release Publish**, which waits for approval; `make release-approve` gives it. If needed, run **Release Publish** by dispatch with an existing `tag`, and approve it the same way.
+
+Release Tag dispatches Release Publish explicitly rather than relying on the tag push, because a tag pushed with the default token does not trigger `on: push: tags`.
+
+## Signing model
+
+- **Tags** are annotated and GPG-signed. **Release Tag** signs with the CI release key rather than a maintainer's personal key, verifies the signature before pushing, and refuses to reuse an existing tag that is not a validly signed annotated tag at the merge commit. The tag rulesets keep every `vX.Y.Z` tag from being moved or deleted once pushed.
+- **Commits** on `main` are signed, which a ruleset requires: GitHub signs the squash commit of every merge and the release PR's own commit, which the workflow makes through the API.
+- **Artifacts** each get a Sigstore keyless signature, made in CI through GitHub's OIDC identity, and a GPG detached signature made with the release key.
+- The protected `release` environment is what keeps the key from being usable by anyone who can merge a `release/*` pull request: the tagging job and the publishing job each wait for the maintainer's approval before they run.
+
+### One-time release key setup
+
+The `release` environment exists with the maintainer as its required reviewer. The key is set up once, locally, as the maintainer. Never paste private key material into an issue, a pull request or a chat transcript.
 
 ```bash
-make release-pr VERSION=X.Y.Z
+# 1. Generate a dedicated release key (not your personal key), with a passphrase.
+PASSPHRASE='<choose-a-strong-passphrase>'
+gpg --batch --passphrase "$PASSPHRASE" \
+    --quick-generate-key 'freeze-pr-links release <you@example.com>' rsa4096 sign 2y
+
+# 2. Note its fingerprint.
+gpg --list-secret-keys --keyid-format=long
+
+# 3. Store the key as secrets of the `release` environment, so that only the
+#    two jobs that wait for approval can read it.
+gpg --armor --export-secret-keys <FINGERPRINT> |
+  gh secret set RELEASE_GPG_PRIVATE_KEY --env release --repo michen00/freeze-pr-links
+gh secret set RELEASE_GPG_PASSPHRASE --env release --repo michen00/freeze-pr-links \
+  --body "$PASSPHRASE"
+
+# 4. Register the public key so signed tags display as Verified on GitHub.
+#    Paste the output at https://github.com/settings/gpg/new
+gpg --armor --export <FINGERPRINT>
 ```
 
-This bumps the version, re-locks, rewrites the changelog, and opens the PR. Two details are worth knowing because they are the things that break:
+Piping the export straight into `gh secret set` leaves no key file on disk. Confirm the secrets landed with `gh secret list --env release`. Without the private key, **Release Tag** and **Release Publish** fail at the import step, so no tag is created and nothing is published; a GitHub App token cannot stand in for it, because GitHub signs commits it creates through the API but never an annotated tag. The key expires in two years; rotate it by repeating these steps.
 
-- **The version is static and the lockfile knows it.** `pyproject.toml` carries a literal `version = '0.0.0'`; there is no version-from-git plugin here. `uv.lock` also records the project's own version, and CI runs `uv run --locked`, which _fails_ rather than silently re-resolving when the lockfile disagrees with `pyproject.toml`. So the bump and the re-lock are one operation, never two: the script uses `uv version "X.Y.Z"` and then `uv lock`. A hand-edited (or `sed`-ed) version that skips the re-lock turns the release PR red on the first CI run.
-- **The changelog entries are commit subjects.** The `## [Unreleased]` section is regenerated from git history by [`scripts/update-unreleased.sh`](scripts/update-unreleased.sh) before being promoted, so it reads like the commit log. That is what the review in step 2 is for.
-
-## Step 2: review and merge
-
-Read the diff the way a consumer would. Reword changelog lines that only make sense to whoever wrote the commit, confirm the version number matches the size of the change, and check that `pyproject.toml` and `uv.lock` moved together. Merge once CI is green.
-
-Everything up to this point is reversible by closing the PR. The tag in step 3 is not.
-
-## Step 3: tag the release
+## Verifying a release
 
 ```bash
-git switch main
-git pull --ff-only origin main
-make release-tag VERSION=X.Y.Z
+# The tag, once the release key's public half is in your keyring
+git verify-tag vX.Y.Z
+
+# An artifact, by Sigstore
+cosign verify-blob --signature artifact.sig --certificate artifact.pem \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github.com/michen00/freeze-pr-links/' artifact
+
+# An artifact, by GPG
+gpg --verify artifact.asc artifact
 ```
-
-This verifies you are on a clean `main` whose committed version matches `X.Y.Z`, creates the annotated tag `vX.Y.Z`, and pushes it with:
-
-```bash
-git push origin refs/tags/vX.Y.Z
-```
-
-That explicit refspec is not a stylistic choice. `git push --follow-tags` pushes _every_ reachable annotated tag that the remote is missing, not just the one you named — so a stale local tag from an abandoned attempt would ride along and start a release for a version nobody asked for. Naming the single ref makes the blast radius exactly one tag.
-
-**Do not run `gh release create` afterwards.** The tag push fires [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds the distribution and creates the GitHub Release itself. Doing it by hand as well either double-creates the release or races the workflow into a failure.
-
-Watch it instead:
-
-```bash
-gh run watch
-gh release view vX.Y.Z
-```
-
-## Troubleshooting
-
-### CI fails with a `--locked` / "lockfile is out of date" error
-
-The version bump landed in `pyproject.toml` without a matching `uv.lock`. Fix it on the release branch:
-
-```bash
-uv lock
-git commit -am 'chore(release): re-lock after version bump'
-```
-
-Do not "fix" this by dropping `--locked` in CI. The flag is what guarantees the release is built from the dependency set that was reviewed.
-
-### `make release-pr` says there is nothing under `[Unreleased]` to promote
-
-Either nothing has merged since the last release, or [`cliff.toml`](cliff.toml) is filtering out every recent commit (it drops some conventional-commit types by design). Check what git-cliff actually sees:
-
-```bash
-git cliff --unreleased
-```
-
-### git-cliff fails with an HTTP 404
-
-git-cliff enriches entries by calling the GitHub API, which answers 404 for a private repository when the caller is anonymous. [`scripts/update-unreleased.sh`](scripts/update-unreleased.sh) resolves a token from `gh auth token` when the CLI is authenticated; if it is not, supply one explicitly:
-
-```bash
-GITHUB_TOKEN=$(gh auth token) make release-pr VERSION=X.Y.Z
-```
-
-### The tag already exists
-
-`make release-tag` refuses to overwrite an existing tag, locally or on the remote, which is the correct behavior: consumers pin tags, and moving a tag out from under them breaks reproducibility. If the tag was never pushed, delete the local one and retry. If it _was_ pushed, do not move it — cut the next version instead.
-
-The one narrow exception is a tag whose release run failed because of a bug in the workflow file itself. Actions runs the workflow as it existed at the tagged commit, so re-running the failed job cannot pick up a fix that landed later on `main`. If you are certain nothing consumes the tag yet, delete it on both sides and re-tag the fixed commit; otherwise, release the next version.
-
-### The tag pushed but no release run started
-
-Confirm the tag reached the remote and that the workflow file exists on the tagged commit:
-
-```bash
-git ls-remote --tags origin 'refs/tags/vX.Y.Z'
-git show vX.Y.Z:.github/workflows/release.yml >/dev/null && echo present
-gh run list --workflow release.yml
-```
-
-A tag created before the release workflow was merged has no workflow to trigger; the fix is to release a later version, not to re-point the tag.

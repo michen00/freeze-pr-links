@@ -1,0 +1,155 @@
+---
+name: Release Publish
+# scripts/release/approve.sh reads the tag from the run name: a run waiting on
+# the `release` environment reports nothing else that says what it publishes.
+run-name: Release Publish ${{ inputs.tag || github.ref_name }}
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing git tag to publish (for example: v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release-publish
+  cancel-in-progress: false
+
+env:
+  # Kept in step with .python-version.
+  PYTHON_VERSION: '3.13'
+
+jobs:
+  release-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Gated on the protected `release` environment: minting a signed tag
+    # and publishing artifacts both pause for maintainer approval.
+    environment: release
+    env:
+      DIST_DIR: dist
+    steps:
+      # Checked out before the tag is parsed so that the shared, unit-tested
+      # parser can be used. A tag push already lands on the tag; a manual
+      # dispatch lands on the default branch. The explicit checkout below moves
+      # to the requested tag in both cases.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        id: release-tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            raw="$INPUT_TAG"
+          else
+            raw="$REF_TAG"
+          fi
+
+          if ! tag="$(scripts/release/parse-version.sh "$raw" --require-v)"; then
+            echo "::error::Invalid release tag '$raw'. Expected vX.Y.Z."
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the release tag
+        env:
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
+        run: git checkout --detach "refs/tags/$RELEASE_TAG"
+
+      - name: Import release GPG key
+        uses: crazy-max/ghaction-import-gpg@v7
+        with:
+          gpg_private_key: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          # Off: a release runs rarely, and setup-uv's default key would leave
+          # out the cache buster tests/test_workflow_caches.py requires.
+          enable-cache: false
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Build release artifacts
+        env:
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
+        run: scripts/release/build-artifacts.sh "$RELEASE_TAG" "$DIST_DIR"
+
+      - name: Sign artifacts
+        env:
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
+          GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+        run: scripts/release/sign-artifacts.sh "$DIST_DIR" "$RELEASE_TAG"
+
+      # git-cliff writes one `## [X.Y.Z](compare-link) - DATE` heading per
+      # release, so the section for this version is everything between its
+      # heading and the next one. `index($0, ...) == 1` is a literal prefix
+      # test rather than a regex match, so the dots in a version cannot act as
+      # wildcards and match a neighboring release.
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        env:
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          notes_file="$RUNNER_TEMP/release-notes.md"
+          awk -v v="${RELEASE_TAG#v}" '
+            index($0, "## [" v "]") == 1 { in_section = 1; next }
+            in_section && index($0, "## [") == 1 { exit }
+            in_section { print }
+          ' CHANGELOG.md >"$notes_file"
+          # A section of nothing but blank lines is as useless as no section.
+          if grep -q '[^[:space:]]' "$notes_file"; then
+            echo "have_notes=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "have_notes=false" >>"$GITHUB_OUTPUT"
+          fi
+          echo "notes_path=$notes_file" >>"$GITHUB_OUTPUT"
+
+      # Idempotent: a rerun after a partial upload repairs the release in place,
+      # so the fix for a flaked release is "rerun the job", never "delete the
+      # release and retag" -- which the tag rulesets would refuse anyway.
+      - name: Publish GitHub release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
+          HAVE_NOTES: ${{ steps.notes.outputs.have_notes }}
+          NOTES_PATH: ${{ steps.notes.outputs.notes_path }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            # `gh release edit` has no --generate-notes, so on a rerun with no
+            # matching section the existing body is left alone, not blanked.
+            if [ "$HAVE_NOTES" = true ]; then
+              gh release edit "$RELEASE_TAG" --notes-file "$NOTES_PATH"
+            fi
+            gh release upload "$RELEASE_TAG" "$DIST_DIR"/* --clobber
+          else
+            args=(--title "$RELEASE_TAG")
+            if [ "$HAVE_NOTES" = true ]; then
+              args+=(--notes-file "$NOTES_PATH")
+            else
+              # Server-generated notes are what .github/release.yml shapes: its
+              # `changelog.exclude.authors` keeps bot pull requests out.
+              args+=(--generate-notes)
+            fi
+            gh release create "$RELEASE_TAG" "${args[@]}" "$DIST_DIR"/*
+          fi

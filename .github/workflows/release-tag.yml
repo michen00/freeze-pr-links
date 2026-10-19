@@ -1,0 +1,111 @@
+---
+name: Release Tag
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: release-tag
+  cancel-in-progress: false
+
+jobs:
+  release-tag:
+    # Only same-repo release branches merged into main. Fork PRs never reach
+    # this job, so the branch name below cannot be chosen by an outside
+    # contributor, and the base check keeps a release/* branch merged into some
+    # other branch from tagging and publishing that unrelated commit.
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'release/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Gated on the protected `release` environment: minting a signed tag
+    # and publishing artifacts both pause for maintainer approval.
+    environment: release
+    steps:
+      # Checked out before the branch name is parsed so that the shared,
+      # unit-tested parser can be used. The ref is the merge commit, never the
+      # attacker-influenced branch name.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+
+      - name: Resolve release tag
+        id: release-tag
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          if ! tag="$(scripts/release/parse-version.sh "${HEAD_REF#release/}" --require-v)"; then
+            echo "::error::Branch '$HEAD_REF' does not encode a vX.Y.Z tag."
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Import release GPG key
+        uses: crazy-max/ghaction-import-gpg@v7
+        with:
+          gpg_private_key: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+          git_config_global: true
+          git_user_signingkey: true
+          git_tag_gpgsign: true
+          trust_level: 5
+
+      - name: Create signed tag
+        env:
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify "refs/tags/$RELEASE_TAG" >/dev/null; then
+            # An existing tag is only safe to reuse when it already points at
+            # the commit being released; otherwise the publish step below would
+            # build and upload assets from unrelated code.
+            existing="$(git rev-list -n 1 "$RELEASE_TAG")"
+            head_sha="$(git rev-parse HEAD)"
+
+            if [ "$existing" != "$head_sha" ]; then
+              echo "::error::Tag $RELEASE_TAG already exists at $existing," \
+                "not at the merge commit $head_sha. Refusing to publish."
+              exit 1
+            fi
+
+            # Reuse has to clear the same bar as creation below. verify-tag
+            # rejects lightweight tags, which are commit objects rather than tag
+            # objects, as well as annotated tags carrying no valid signature, so
+            # it is the only check needed to keep an accidentally pre-pushed tag
+            # from being published as though CI had signed it.
+            if ! git verify-tag "$RELEASE_TAG"; then
+              echo "::error::Tag $RELEASE_TAG exists at the merge commit but is" \
+                "not a validly signed annotated tag. Refusing to publish."
+              exit 1
+            fi
+
+            echo "Tag $RELEASE_TAG already points at $head_sha and is signed;" \
+              "skipping tag creation."
+            exit 0
+          fi
+
+          git tag -a -s "$RELEASE_TAG" -m "$RELEASE_TAG"
+          git verify-tag "$RELEASE_TAG"
+          git push origin "$RELEASE_TAG"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # A tag pushed with GITHUB_TOKEN does not fire `on: push: tags`, so
+          # Release Publish is dispatched explicitly. workflow_dispatch is
+          # exempt from the rule that blocks workflows triggering workflows.
+          gh workflow run release-publish.yml --ref main -f tag="$RELEASE_TAG"

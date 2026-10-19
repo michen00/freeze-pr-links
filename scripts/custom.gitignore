@@ -22,3 +22,8 @@
 .specify/init-options.json
 .specify/scripts/bash/*.sh
 .specify/templates/*.md
+
+# The Visual Studio template above ignores every `release/` directory. These hold
+# the release scripts and their tests.
+!scripts/release/
+!tests/release/

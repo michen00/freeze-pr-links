@@ -40,13 +40,7 @@ A change to `action.yml` or to `.github/workflows/freeze-pr-links.yml` has to ke
 
 ## Creating a release
 
-Releases are cut with the tooling in [RELEASING.md](RELEASING.md), which is the source of truth. In short:
-
-1. `make release-pr VERSION=X.Y.Z` bumps the version, re-locks `uv.lock`, promotes the `## [Unreleased]` section of `CHANGELOG.md`, and opens the release PR.
-1. Merge that PR.
-1. `make release-tag VERSION=X.Y.Z` creates and pushes `vX.Y.Z`, which triggers the release workflow.
-
-Do not run `gh release create` by hand; the workflow does it, and doing both creates the release twice.
+The maintainer cuts releases, and [RELEASING.md](RELEASING.md) is the runbook. A release PR opens by itself when a release-worthy commit lands on `main`. Merging it and approving two runs creates a signed tag and publishes signed artifacts; `make release-status` shows where a release stands.
 
 ## Editor
 
