@@ -1,6 +1,6 @@
 [project]
 name = 'freeze-pr-links'
-version = '0.0.0'
+version = "0.1.0"
 description = "Rewrite a merged pull request's head-branch links as commit permalinks"
 readme = 'README.md'
 authors = [{ name = 'Michael I Chen', email = 'michael.chen.0@gmail.com' }]
