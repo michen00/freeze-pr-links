@@ -162,8 +162,6 @@ commit_parsers = [
     { message = "^chore: merge", skip = true },
     { message = "^docs\\(blame\\)", skip = true },
     { message = "^docs: update .git-blame-ignore-revs", skip = true },
-    # The repository's first commit, and the title Dependabot uses before the
-    # history gives it a Conventional Commit to copy; neither changes the tool.
     { message = "^Initial commit", skip = true },
     { message = "^Bump the .+ group with \\d+ updates", skip = true },
     { message = "^Bump .+ from [^ ]+ to [^ ]+", skip = true }
