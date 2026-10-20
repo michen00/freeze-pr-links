@@ -1,9 +1,9 @@
-"""Tests for the workflows' security properties.
+"""Tests for the workflows' security and release properties.
 
 Each test reads a workflow definition and pins one property that a later edit could
 remove without any other check failing: who may write, what a privileged job checks
-out, and what auto-merge waits for. The no-interpolation rule is in
-test_workflow_injection.py.
+out, what auto-merge waits for, and what tests a release once it is published. The
+no-interpolation rule is in test_workflow_injection.py.
 """
 
 import re
@@ -117,3 +117,23 @@ def test_workflows_that_run_pull_request_code_cannot_write() -> None:
         assert _write_scopes(workflow.get('permissions')) == set(), name
         for job_name, job in workflow['jobs'].items():
             assert _write_scopes(job.get('permissions')) == set(), (name, job_name)
+
+
+def test_release_publish_smoke_tests_the_tag_it_published() -> None:
+    """Release Publish calls the smoke workflow with the tag it has just published.
+
+    Release Publish creates the release with the default token, and an event that
+    token causes starts no workflow, so a smoke run triggered by `release:
+    published` would never start after a release.
+    """
+    publish = _load('release-publish.yml')
+    smoke = publish['jobs']['smoke']
+    assert smoke['uses'] == './.github/workflows/release-smoke.yml'
+    assert smoke['needs'] == 'release-publish'
+    assert smoke['with']['tag'] == '${{ needs.release-publish.outputs.tag }}'
+    assert publish['jobs']['release-publish']['outputs']['tag'] == (
+        '${{ steps.release-tag.outputs.tag }}'
+    )
+    triggers = _triggers(_load('release-smoke.yml'))
+    assert triggers['workflow_call']['inputs']['tag']['required'] is True
+    assert 'release' not in triggers

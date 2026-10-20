@@ -37,6 +37,8 @@ jobs:
     environment: release
     env:
       DIST_DIR: dist
+    outputs:
+      tag: ${{ steps.release-tag.outputs.tag }}
     steps:
       # Checked out before the tag is parsed so that the shared, unit-tested
       # parser can be used. A tag push already lands on the tag; a manual
@@ -180,3 +182,14 @@ jobs:
             fi
             gh release create "$RELEASE_TAG" "${args[@]}" "$DIST_DIR"/*
           fi
+
+  # The release above is created with the default token, so `release:
+  # published` starts nothing; the smoke run is called here instead.
+  smoke:
+    needs: release-publish
+    uses: ./.github/workflows/release-smoke.yml
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      tag: ${{ needs.release-publish.outputs.tag }}

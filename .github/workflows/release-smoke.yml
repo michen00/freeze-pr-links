@@ -2,10 +2,11 @@
 name: Release smoke
 
 # Runs a published release of the action, which nothing before a release can:
-# the tag does not exist until the release is cut. On a published release it
-# runs that tag; on a dispatch or the weekly schedule it runs the newest release,
-# as a canary against tag rot. `uses:` takes no expression, so the tag is checked
-# out and run from a path.
+# the tag does not exist until the release is cut. Release Publish calls it with
+# the tag it has just published; a dispatch runs the tag it names, and a dispatch
+# without one or the weekly schedule runs the newest release, as a canary against
+# tag rot. `uses:` takes no expression, so the tag is checked out and run from a
+# path.
 #
 # The target is the pull request merged into the default branch most recently.
 # freeze-pr-links.yml froze its links when it merged, so this run finds them
@@ -14,9 +15,21 @@ name: Release smoke
 # transform over the body, and sweeping every comment.
 
 on:
-  release:
-    types: [published]
+  # Called rather than triggered by `release: published`: Release Publish creates
+  # the release with the default token, and an event that token causes starts no
+  # workflow.
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to test, for example v0.1.0.
+        required: true
+        type: string
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to test. Defaults to the newest release.
+        required: false
+        type: string
   schedule:
     - cron: '0 12 * * 1' # Mondays 12:00 UTC
 
@@ -40,11 +53,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           out() { echo "$1" >>"$GITHUB_OUTPUT"; }
-          tag="${EVENT_TAG:-}"
+          tag="${INPUT_TAG:-}"
           if [ -z "$tag" ]; then
             if ! tag="$(gh release view --repo "$REPO" \
               --json tagName --jq .tagName 2>/dev/null)"; then
