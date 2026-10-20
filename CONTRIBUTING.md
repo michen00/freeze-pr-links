@@ -34,7 +34,7 @@ A change to `action.yml` or to `.github/workflows/freeze-pr-links.yml` has to ke
 
 - Merges are squash-only, and the PR title becomes the squash commit, so it must be a valid Conventional Commit. A single-commit PR squashes to that commit's subject instead, so keep the two identical.
 - Fill in the [PR template](.github/pull_request_template.md). Summary and Testing always apply, and the checks fail without them.
-- Link a file in the PR body or a comment to the head branch, not to a commit. The branch is deleted on merge, and this repository's own action then rewrites each such link to the head commit.
+- If you link to a file from a PR's description or comments, use the link on your branch rather than one pinned to a commit. While the PR is open, that link shows the latest version, and when it merges, this repository's own action points it at the branch's last commit so it keeps working after the branch is deleted.
 - Open as a draft while the change is still moving.
 - Read what a merge into `main` needs with `gh api repos/michen00/freeze-pr-links/rules/branches/main`. The ruleset `main-protect` requires `Run CI (3.13)` and `checks` to pass, one approving review and every review thread resolved. Dependabot's patch and minor updates, in every ecosystem, are armed for auto-merge. A major update waits for a person, and so does any pull request labeled `do not auto-merge`.
 
