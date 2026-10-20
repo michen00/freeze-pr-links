@@ -164,7 +164,7 @@ commit_parsers = [
     { message = "^docs: update .git-blame-ignore-revs", skip = true },
     { message = "^Initial commit", skip = true },
     { message = "^Bump the .+ group with \\d+ updates", skip = true },
-    { message = "^Bump .+ from [^ ]+ to [^ ]+", skip = true }
+    { message = "^Bump .+ from [^ ]+ to [^ ]+", skip = true },
 
     # User-facing categories (KEEP)
     { message = "^feat", group = "<!-- 00 -->✨ Features" },
