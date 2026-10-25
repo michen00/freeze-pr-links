@@ -1,0 +1,7 @@
+---
+# Codecov serves only the README badge: no statuses, no comments.
+coverage:
+  status:
+    project: false
+    patch: false
+comment: false
