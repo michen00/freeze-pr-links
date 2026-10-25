@@ -1,0 +1,9 @@
+---
+# Codecov serves the README's coverage badge and nothing else; see
+# .github/workflows/codecov.yml. Nothing in this repository fails on a coverage
+# number, so Codecov posts no commit status and no pull request comment.
+coverage:
+  status:
+    project: false
+    patch: false
+comment: false
