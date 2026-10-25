@@ -1,26 +1,8 @@
 ---
 name: Codecov
 
-# Measures main's coverage and uploads it to Codecov, which serves the README's
-# coverage badge. That badge is the only thing Codecov is used for here: CI's
-# `pytest` job measures every pull request, and coverage-comment.yml reports
-# that number on the pull request itself.
-#
-# A workflow of its own rather than a step in CI's `pytest` job, for two
-# reasons. The upload authenticates by OIDC, and `id-token: write` is a write
-# scope, which tests/test_workflows.py keeps out of every CI job because those
-# jobs run pull request code. And `run-ci` must need every CI job, so a job
-# that skipped on pull requests would fail the required context. Running only
-# on a push to main means the suite measured here has already merged, and
-# Codecov never receives a pull request's coverage, so it posts no comment
-# beside the one coverage-comment.yml keeps.
-#
-# `use_oidc` rather than an upload token: Codecov refuses an anonymous upload,
-# and OIDC is the only authentication it accepts that stores no secret.
-# `fail_ci_if_error` is on because with it off a refused upload passes, and
-# the only sign of the failure is the badge reading "unknown".
-# .github/codecov.yml turns off Codecov's commit statuses and pull request
-# comments, because nothing in this repository fails on a coverage number.
+# Uploads main's coverage for the README badge. Not a CI job, because
+# tests/test_workflows.py keeps `id-token: write` out of CI.
 
 on:
   push:
@@ -46,8 +28,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      # No uv cache, as in coverage-on-demand.yml: setup-uv's default key leaves
-      # out `.cache-buster`, and one run per merge gains little from an entry.
       - uses: astral-sh/setup-uv@v10.1.0
         with:
           enable-cache: false
