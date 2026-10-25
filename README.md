@@ -1,5 +1,11 @@
 # freeze-pr-links
 
+[![Build Status](https://img.shields.io/github/actions/workflow/status/michen00/freeze-pr-links/CI.yml?branch=main&style=plastic)](https://github.com/michen00/freeze-pr-links/actions/workflows/CI.yml)
+[![Coverage](https://img.shields.io/codecov/c/github/michen00/freeze-pr-links?style=plastic)](https://codecov.io/gh/michen00/freeze-pr-links)
+[![Release](https://img.shields.io/github/v/release/michen00/freeze-pr-links?style=plastic)](https://github.com/michen00/freeze-pr-links/releases)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=plastic)](CONTRIBUTING.md)
+[![License](https://img.shields.io/github/license/michen00/freeze-pr-links?style=plastic)](LICENSE)
+
 A pull request often links files on its own head branch, as `https://github.com/OWNER/REPO/blob/my-branch/src/app.py`. Once the pull request merges and the branch is deleted, those links return 404. This action runs when a pull request merges and rewrites each such link as a permalink to the head commit, as `https://github.com/OWNER/REPO/blob/<head-sha>/src/app.py`, which keeps working after the branch is gone.
 
 It edits the pull request body, its conversation comments, its review-thread replies, and its submitted review summaries.
@@ -90,6 +96,11 @@ make check     # the full local gate
 
 The workflow runs on `pull_request_target`, so it holds a write token while it reads text that the pull request's author wrote. [SECURITY.md](SECURITY.md) says what the action guarantees about that text and what a calling workflow has to keep true.
 
-## Documentation
+## Documentation [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/michen00/freeze-pr-links)
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/michen00/freeze-pr-links)
+- [Releases](https://github.com/michen00/freeze-pr-links/releases) — each version's notes, with its signed wheel, sdist and checksum file
+- [CHANGELOG.md](CHANGELOG.md) — every release's changes, grouped by Conventional Commit type
+- [SECURITY.md](SECURITY.md) — supported versions, reporting a vulnerability privately, what the action can reach, and what a calling workflow has to keep true
+- [CONTRIBUTING.md](CONTRIBUTING.md) — setup, branch and commit rules, the checks to run before a pull request, and what a merge into `main` needs
+- [RELEASING.md](RELEASING.md) — how a release is tagged, signed and published, and how to verify a tag or an artifact
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — the Contributor Covenant 3.0, which everyone taking part follows
