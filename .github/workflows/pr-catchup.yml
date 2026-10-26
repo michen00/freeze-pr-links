@@ -4,37 +4,25 @@ name: PR catchup
 # Merges main into each open pull request from this repository that is behind main and
 # does not conflict, on every push to main and on demand. It never merges into main.
 #
-# The merge uses POST /repos/{repo}/merges, not a merge on the runner, because a commit
-# the API creates is signed by GitHub and so satisfies the signed-commits ruleset
-# without an App token. It does not use "Update a pull request branch", which cannot set
-# a commit message: that endpoint's subject, "Merge branch 'main' into ...", passes the
-# commit-message ruleset only through its `Merge ` exception. The subject here is
-# `chore: merge main into #N`.
+# The merge uses POST /repos/{repo}/merges: GitHub signs the commit, which satisfies the
+# signed-commits ruleset, and the subject can be `chore: merge main into #N`. "Update a
+# pull request branch" cannot set a subject, and its default passes the commit-message
+# ruleset only through the `Merge ` exception.
 #
-# GitHub holds the pull_request runs that a github-actions[bot] merge commit causes
-# until a user with write access approves them, so they land action_required and never
-# report at the new head:
+# As of 2026-06-11, GitHub holds the pull_request runs that a github-actions[bot] commit
+# causes as action_required until someone with write access approves them, and no
+# setting lifts the hold:
 # https://github.blog/changelog/2026-06-11-bot-created-pull-requests-can-run-workflows-if-approved/
-# The pull request then looks current but cannot merge. The hold applies to the bot
-# actor, not to forks, so no repository setting lifts it.
+# Without an App, this workflow approves the runs at the commit it pushed (`approvable` in
+# .github/scripts/approve-bot-gated-runs.sh) and fails if any stays held; approve it from
+# the pull request's Checks tab to recover. With an App (vars.APP_CLIENT_ID and
+# secrets.APP_PRIVATE_KEY), it merges as the App and nothing is held.
 #
-# Without an App, this workflow therefore approves the runs at the merge commit it
-# pushed, as `approvable` in .github/scripts/approve-bot-gated-runs.sh selects them, and
-# fails if any run is still held. To recover, approve the run from the pull request's
-# Checks tab. With an App (vars.APP_CLIENT_ID and secrets.APP_PRIVATE_KEY), the merge is
-# made as the App, and GitHub holds none of the runs it causes. The last step fails on a
-# refused merge from either identity.
+# require_extra_approval_for_unattributed_changes does not treat a github-actions[bot]
+# merge commit as unattributed.
 #
-# The organization's require_extra_approval_for_unattributed_changes rule does not treat
-# a github-actions[bot] merge commit as unattributed, so the pull request it updates
-# needs no further approval.
-#
-# A Dependabot auto-merge does not start this workflow, because GitHub starts no
-# workflow for an event that GITHUB_TOKEN caused; run `gh workflow run pr-catchup.yml`
-# after one. There is deliberately no schedule: a daily run that usually finds nothing
-# teaches readers to ignore it. An App token in dependabot-auto-merge.yml would close
-# the gap, because a merge made as an App starts workflows. The App this workflow can
-# use changes only who makes its own merge commits.
+# A merge completed under GITHUB_TOKEN starts no workflow, so this does not run after an
+# auto-merge armed with that token; dispatch it by hand then.
 
 on:
   push:
