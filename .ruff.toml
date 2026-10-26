@@ -103,6 +103,9 @@ max-complexity = 15
     'S603', # subprocess-without-shell-equals-true
     'S607', # start-process-with-partial-path (`bash` off PATH)
 ]
+# The workflow tests compare `env:` entries that name tokens, such as `GH_TOKEN`, with
+# the `${{ }}` expressions they should hold.
+'tests/test_workflows.py' = ['S105'] # hardcoded-password-string
 # D401 (imperative-mood) is re-enabled globally above; exempt it ONLY for `test_*.py`,
 # where a docstring is a declarative truth-apt proposition.
 'tests/**/test_*.py' = ['D401']
