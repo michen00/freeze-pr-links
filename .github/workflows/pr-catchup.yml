@@ -22,12 +22,7 @@ name: PR catchup
 # merge commit as unattributed.
 #
 # A merge completed under GITHUB_TOKEN starts no workflow, so this does not run after an
-# auto-merge armed with that token; dispatch it by hand then. No schedule: a daily run
-# that usually finds nothing teaches readers to ignore it.
-#
-# Where the base branch requires approval of the most recent push, this workflow's merge
-# makes its identity the last pusher, so bot-automerge.yml's github-actions approval
-# counts after an App merge and not after a default-token one.
+# auto-merge armed with that token; dispatch it by hand then.
 
 on:
   push:
