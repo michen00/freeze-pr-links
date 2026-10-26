@@ -249,8 +249,8 @@ jobs:
     # that never reports, which blocks every pull request; renaming it to something
     # not required silently un-gates the branch. Verify against
     # `gh api repos/michen00/freeze-pr-links/rulesets` before changing it.
-    # dependabot-auto-merge.yml arms only when this context is required, and
-    # names it too.
+    # bot-automerge.yml arms only when this context is required, and names it
+    # too.
     name: Run CI (3.13)
     needs: [secrets, precommit, analysis, pytest]
     # `always()` so a skipped or canceled dependency reddens this job rather

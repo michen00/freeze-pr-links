@@ -6,7 +6,6 @@ out, what auto-merge waits for, and what tests a release once it is published. T
 no-interpolation rule is in test_workflow_injection.py.
 """
 
-import re
 from pathlib import Path
 from typing import Any
 
@@ -53,22 +52,26 @@ def test_auto_merge_waits_for_the_context_ci_reports() -> None:
     arms only while a ruleset requires this context.
     """
     ci_name = _load('CI.yml')['jobs']['run-ci']['name']
-    gate = _steps(_load('dependabot-auto-merge.yml'), 'auto-merge')[
+    gate = _steps(_load('bot-automerge.yml'), 'bot-automerge')[
         'Check that the base branch requires CI'
     ]
     assert gate['env']['CONTEXT'] == ci_name
 
 
-def test_auto_merge_arms_only_patch_and_minor_behind_the_ci_gate() -> None:
-    """Arming waits on the CI gate, which runs only for patch and minor updates."""
-    steps = _steps(_load('dependabot-auto-merge.yml'), 'auto-merge')
+def test_auto_merge_arms_only_behind_the_ci_gate() -> None:
+    """Approving and arming wait on the CI gate as well as on eligibility.
+
+    Major updates are eligible too, so the gate is what keeps every armed pull request
+    waiting for CI rather than for whatever else the base branch happens to require.
+    """
+    steps = _steps(_load('bot-automerge.yml'), 'bot-automerge')
     gate = steps['Check that the base branch requires CI']
-    enable = steps['Enable auto-merge for patch and minor updates']
-    assert set(re.findall(r"'version-update:semver-(\w+)'", gate['if'])) == {
-        'patch',
-        'minor',
-    }
-    assert enable['if'] == "${{ steps.gate.outputs.required == 'true' }}"
+    arm = steps['Re-check the kill switch, then approve and arm']
+    assert gate['if'] == "steps.eligible.outputs.should_merge == 'true'"
+    assert arm['if'] == (
+        "steps.eligible.outputs.should_merge == 'true' && "
+        "steps.gate.outputs.required == 'true'"
+    )
 
 
 def test_auto_merge_guards_on_the_pull_request_author() -> None:
@@ -77,9 +80,46 @@ def test_auto_merge_guards_on_the_pull_request_author() -> None:
     `github.actor` is whoever caused the event, such as a person who pushed to the
     branch, while the author stays `dependabot[bot]` for the life of the pull request.
     """
-    guard = _load('dependabot-auto-merge.yml')['jobs']['auto-merge']['if']
+    guard = _load('bot-automerge.yml')['jobs']['bot-automerge']['if']
     assert "github.event.pull_request.user.login == 'dependabot[bot]'" in guard
     assert 'github.actor' not in guard
+
+
+def test_auto_merge_approves_as_github_actions() -> None:
+    """The approval is the default token's; only arming may use the App token.
+
+    Where the base branch requires approval of the most recent push, an approval counts
+    only from an identity other than the last pusher, and pr-catchup.yml pushes as the
+    App when one is configured. An approval made as the App would never count there.
+    """
+    arm = _steps(_load('bot-automerge.yml'), 'bot-automerge')[
+        'Re-check the kill switch, then approve and arm'
+    ]
+    assert arm['env']['GH_TOKEN'] == '${{ github.token }}'
+    assert arm['env']['ARM_TOKEN'] == (
+        '${{ steps.app-token.outputs.token || github.token }}'
+    )
+    lines = arm['run'].splitlines()
+    approve = [line for line in lines if 'gh pr review --approve' in line]
+    merge = [line for line in lines if 'gh pr merge --auto' in line]
+    assert len(approve) == 1
+    assert 'ARM_TOKEN' not in approve[0]
+    assert [line.strip() for line in merge] == [
+        'GH_TOKEN="$ARM_TOKEN" gh pr merge --auto --squash "$PR_NUMBER"'
+    ]
+
+
+def test_the_kill_switch_reaches_every_pull_request() -> None:
+    """The disarm workflow runs on every `do not auto-merge` label, with no other test.
+
+    Arming takes no human action, so the label has to be able to take it back on any
+    pull request the arming job can reach, including one retargeted after arming.
+    """
+    disarm = _load('bot-automerge-disarm.yml')
+    assert _triggers(disarm) == {'pull_request': {'types': ['labeled']}}
+    assert disarm['jobs']['disarm']['if'] == (
+        "github.event.label.name == 'do not auto-merge'"
+    )
 
 
 def test_the_link_freeze_runs_nothing_from_the_pull_request() -> None:

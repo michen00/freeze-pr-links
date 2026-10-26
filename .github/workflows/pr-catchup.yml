@@ -25,16 +25,21 @@ name: PR catchup
 # made as the App, and GitHub holds none of the runs it causes. The last step fails on a
 # refused merge from either identity.
 #
-# The organization's require_extra_approval_for_unattributed_changes rule does not treat
-# a github-actions[bot] merge commit as unattributed, so the pull request it updates
+# The ruleset's require_extra_approval_for_unattributed_changes rule does not treat a
+# github-actions[bot] merge commit as unattributed, so the pull request it updates
 # needs no further approval.
 #
-# A Dependabot auto-merge does not start this workflow, because GitHub starts no
-# workflow for an event that GITHUB_TOKEN caused; run `gh workflow run pr-catchup.yml`
-# after one. There is deliberately no schedule: a daily run that usually finds nothing
-# teaches readers to ignore it. An App token in dependabot-auto-merge.yml would close
-# the gap, because a merge made as an App starts workflows. The App this workflow can
-# use changes only who makes its own merge commits.
+# A merge that auto-merge completes under GITHUB_TOKEN does not start this workflow,
+# because GitHub starts no workflow for an event that token caused; run
+# `gh workflow run pr-catchup.yml` after one. bot-automerge.yml arms auto-merge as the
+# App when one is configured, and a merge the App completes does start this workflow.
+# There is deliberately no schedule: a daily run that usually finds nothing teaches
+# readers to ignore it.
+#
+# Where the base branch requires approval of the most recent push, the merge commit this
+# workflow pushes makes its identity the last pusher. bot-automerge.yml approves as
+# github-actions[bot], so that approval counts after an App merge and not after a
+# default-token one, which leaves a Dependabot pull request waiting for a person.
 
 on:
   push:
