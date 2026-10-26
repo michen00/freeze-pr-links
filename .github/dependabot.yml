@@ -13,8 +13,6 @@ updates:
     commit-message:
       prefix: chore
     cooldown:
-      # default-days covers the patch and minor releases auto-merge arms; a
-      # compromised publisher ships those as readily as a major.
       default-days: 7
       semver-major-days: 30
   - package-ecosystem: pre-commit
