@@ -602,12 +602,10 @@ def test_a_dispatch_is_honored_only_from_the_default_branch() -> None:
 def test_nothing_runs_this_on_a_timer() -> None:
     """No schedule starts this workflow.
 
-    A push to main by a person or an App starts it. A merge that auto-merge
-    completed under GITHUB_TOKEN does not, because GitHub creates no workflow run
-    for an event that token caused, so without an App open branches stay behind
-    until the next merge by a person or a manual dispatch. The header accepts that
-    gap rather than covering it with a daily run that usually finds nothing, so a
-    cron that comes back should come with a reason.
+    A push to main by a person or an App starts it; a merge completed under
+    GITHUB_TOKEN does not. The header accepts that gap rather than adding a daily
+    run that usually finds nothing, so a cron that comes back should come with a
+    reason.
     """
     assert 'schedule:' not in _DIRECTIVES
     assert 'cron:' not in _DIRECTIVES

@@ -61,8 +61,7 @@ def test_auto_merge_waits_for_the_context_ci_reports() -> None:
 def test_auto_merge_arms_only_behind_the_ci_gate() -> None:
     """Approving and arming wait on the CI gate as well as on eligibility.
 
-    Major updates are eligible too, so the gate is what keeps every armed pull request
-    waiting for CI rather than for whatever else the base branch happens to require.
+    Majors are eligible too, so the gate is what keeps a bot merge waiting for CI.
     """
     steps = _steps(_load('bot-automerge.yml'), 'bot-automerge')
     gate = steps['Check that the base branch requires CI']
@@ -88,9 +87,8 @@ def test_auto_merge_guards_on_the_pull_request_author() -> None:
 def test_auto_merge_approves_as_github_actions() -> None:
     """The approval is the default token's; only arming may use the App token.
 
-    Where the base branch requires approval of the most recent push, an approval counts
-    only from an identity other than the last pusher, and pr-catchup.yml pushes as the
-    App when one is configured. An approval made as the App would never count there.
+    pr-catchup.yml pushes as the App, so under last-push approval an App approval would
+    never count.
     """
     arm = _steps(_load('bot-automerge.yml'), 'bot-automerge')[
         'Re-check the kill switch, then approve and arm'
@@ -112,8 +110,8 @@ def test_auto_merge_approves_as_github_actions() -> None:
 def test_the_kill_switch_reaches_every_pull_request() -> None:
     """The disarm workflow runs on every `do not auto-merge` label, with no other test.
 
-    Arming takes no human action, so the label has to be able to take it back on any
-    pull request the arming job can reach, including one retargeted after arming.
+    It must reach every pull request the arming job can, including one retargeted after
+    arming.
     """
     disarm = _load('bot-automerge-disarm.yml')
     assert _triggers(disarm) == {'pull_request': {'types': ['labeled']}}
