@@ -95,7 +95,7 @@ jobs:
           passphrase: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v10.1.0
+        uses: astral-sh/setup-uv@v10.2.0
         with:
           # Off: a release runs rarely, and setup-uv's default key would leave
           # out the cache buster tests/test_workflow_caches.py requires.

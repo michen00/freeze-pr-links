@@ -141,7 +141,7 @@ jobs:
       # No uv cache. This runs rarely, so an entry would mostly be cold or evicted,
       # and setup-uv's default key leaves out `.cache-buster`, so a bust would not
       # reach it.
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: astral-sh/setup-uv@v10.2.0
         with:
           enable-cache: false
           python-version: '3.13'
