@@ -1,5 +1,8 @@
 [rules]
-# Raised to errors from ty's defaults.
+# Raised to errors from ty's defaults. With ruff's ANN rules, they require annotated
+# functions and catch bare generics, always-true conditions, unused suppressions,
+# decorators that erase a function's type, and truthiness tests that cannot tell
+# None from other falsy values.
 deprecated = 'error'
 division-by-zero = 'error'
 dynamic-function-decorator-return = 'error'
