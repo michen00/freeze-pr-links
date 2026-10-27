@@ -17,10 +17,7 @@ repos:
       - id: sync-pre-commit-deps
 
   # security (fail fast)
-  #
-  # gitleaks scans only what is staged, so it checks each commit as it is made, and
-  # scans nothing under `--all-files` on a clean tree. CI's precommit job skips it,
-  # and its Secret scanning job stages the change under review before running it.
+  # gitleaks scans only staged changes; CI's Secret scanning job stages the change first.
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.1
     hooks:
@@ -92,19 +89,7 @@ repos:
     rev: v1.9.6
     hooks:
       - id: tombi-format
-  # One paragraph is one line, so a diff to a paragraph is one line. Ordered before
-  # markdownlint below, so that what markdownlint --fix sees is the final text rather
-  # than a shape about to change under it.
-  #
-  # The two do not compete, and the reason is worth stating because the hook's own
-  # readme warns about exactly this: a rule that wraps prose and a hook that unwraps it
-  # undo each other forever. The wrapping rules are markdownlint's line-length and
-  # Prettier's proseWrap. Here line-length is false in .markdownlint.yml, and Prettier
-  # never sees Markdown at all (.prettierignore), so nothing is pulling the other way.
-  #
-  # The writing id rather than the -check one: nothing else in this tree reflows prose,
-  # so the hook can hold the convention instead of only reporting on it. Exclusions are
-  # in .unwrapignore, the tool's own mechanism, which a bare CLI run honors too.
+  # Before markdownlint, so its --fix sees the final text; nothing here rewraps prose.
   - repo: https://github.com/michen00/markdown-prose-hooks-py
     rev: v0.5.2
     hooks:
@@ -164,16 +149,12 @@ repos:
     rev: v0.0.89
     hooks:
       - id: ty
-        # The hook syncs uv.lock into the project environment and checks against it,
-        # so no import list is kept here. default-groups is empty, so --all-groups is
-        # passed to include every group; without it the tests' imports would not
-        # resolve. The hook brings its own uv, so --locked stops it from
-        # rewriting a stale uv.lock.
+        # --all-groups because default-groups is empty and the tests need their imports;
+        # --locked keeps the hook's own uv from rewriting a stale uv.lock.
         args: ['--all-groups', '--locked']
   - repo: local
     hooks:
-      # Both run in the project environment from uv.lock, so imports resolve and the
-      # version is the locked one. pyrightconfig.json and .pylintrc choose the checks.
+      # Both run in the uv.lock environment, so imports resolve at the locked versions.
       - id: basedpyright
         name: basedpyright
         entry: uv run --locked --all-groups basedpyright
