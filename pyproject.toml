@@ -26,8 +26,7 @@ dev = [
   "ruff>=0.17.1",
 ]
 test = [ "pytest>=9.1.1", "pytest-cov>=6.2.1", "pytest-xdist>=3.8", "pyyaml>=6.0.2" ]
-# What CI's jobs install for themselves: nox, which installs each session's own group,
-# and pre-commit, which the hook sessions run from this same environment.
+# CI's own tools; nox installs each session's group.
 ci = [ "nox[uv]>=2026.8.17", "pre-commit>=4.7" ]
 
 [tool.uv]
@@ -41,5 +40,5 @@ publish-url = "https://test.pypi.org/legacy/"
 explicit = true
 
 [tool.pyproject-fmt]
-# The newest Python CI runs; pyproject-fmt writes classifiers up to it.
+# The newest Python CI tests.
 max_supported_python = "3.13"
