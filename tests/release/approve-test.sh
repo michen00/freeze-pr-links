@@ -185,7 +185,7 @@ out="$(GH_STUB_WAITING='[]' run_approve "$log")"
 status=$?
 if [ "$status" -ne 1 ]; then
   fail "no waiting run exits 1" "Exited $status, expected 1"
-elif [[ "$out" != *"Nothing to release"* ]]; then
+elif [[ $out != *"Nothing to release"* ]]; then
   fail "no waiting run explains itself" "Got: $out"
 elif [ -s "$log" ]; then
   fail "no waiting run approves nothing" "A POST was sent"
@@ -200,9 +200,9 @@ out="$(GH_STUB_WAITING='[]' GH_STUB_RELEASES='[{"tagName":"v0.1.2"}]' \
 status=$?
 if [ "$status" -ne 0 ]; then
   fail "--status exits 0 when idle" "Exited $status, expected 0"
-elif [[ "$out" != *"Awaiting approval: none"* ]]; then
+elif [[ $out != *"Awaiting approval: none"* ]]; then
   fail "--status reports an idle repository" "Got: $out"
-elif [[ "$out" != *"v0.1.2"* ]]; then
+elif [[ $out != *"v0.1.2"* ]]; then
   fail "--status reports the latest release" "Got: $out"
 else
   pass "--status exits 0 and reports nothing awaiting approval"
@@ -211,7 +211,7 @@ fi
 # An empty release list is a fact about the repository, not a failure.
 out="$(GH_STUB_WAITING='[]' GH_STUB_RELEASES='[]' run_approve "$log" --status)"
 status=$?
-if [ "$status" -eq 0 ] && [[ "$out" == *"Latest release:   none"* ]]; then
+if [ "$status" -eq 0 ] && [[ $out == *"Latest release:   none"* ]]; then
   pass "--status reports 'none' for a repository with no releases"
 else
   fail "--status handles an empty release list" "Exited $status. Got: $out"
@@ -220,7 +220,7 @@ fi
 # A failed lookup is not the same fact, and must not read as one.
 out="$(GH_STUB_WAITING='[]' GH_STUB_RELEASE_FAIL=1 run_approve "$log" --status)"
 status=$?
-if [ "$status" -eq 1 ] && [[ "$out" != *"Latest release:   none"* ]]; then
+if [ "$status" -eq 1 ] && [[ $out != *"Latest release:   none"* ]]; then
   pass "--status fails loudly when the release lookup errors"
 else
   fail "--status distinguishes lookup failure from no releases" \
@@ -232,7 +232,7 @@ out="$(GH_STUB_WAITING="$WAITING_RUN" GH_STUB_RELEASES='[]' \
 status=$?
 if [ "$status" -ne 0 ]; then
   fail "--status exits 0 with a run in flight" "Exited $status, expected 0"
-elif [[ "$out" == *"v9.9.9"* && "$out" == *"https://example.invalid/run/42"* ]]; then
+elif [[ $out == *"v9.9.9"* && $out == *"https://example.invalid/run/42"* ]]; then
   pass "--status names the pending version and links the run"
 else
   fail "--status names the pending version" "Got: $out"
@@ -252,7 +252,7 @@ out="$(GH_STUB_WAITING="$WAITING_RUN" GH_STUB_MERGEDPR="$MERGED_PR" \
 status=$?
 if [ "$status" -ne 1 ]; then
   fail "non-tty without --yes exits 1" "Exited $status, expected 1"
-elif [[ "$out" != *"not a terminal"* ]]; then
+elif [[ $out != *"not a terminal"* ]]; then
   fail "non-tty without --yes explains itself" "Got: $out"
 elif [ -s "$log" ]; then
   fail "non-tty without --yes approves nothing" "A POST was sent"
@@ -335,7 +335,7 @@ else
   fail "approves both release runs in order" "Approved: '$runs'. Output: $out"
 fi
 
-if [[ "$out" == *"v9.9.9"* ]]; then
+if [[ $out == *"v9.9.9"* ]]; then
   pass "the approval summary names the tag being minted"
 else
   fail "the approval summary names the tag" "Got: $out"
@@ -343,7 +343,7 @@ fi
 
 # The regression that matters: release-tag.yml tags merge_commit_sha, so showing
 # the run's headSha would name a commit the tag never points at.
-if [[ "$out" == *"$MERGE_SHA"* && "$out" != *"$BRANCH_TIP"* ]]; then
+if [[ $out == *"$MERGE_SHA"* && $out != *"$BRANCH_TIP"* ]]; then
   pass "the summary names the merge commit, not the branch tip"
 else
   fail "the summary names the merge commit" \
@@ -376,7 +376,7 @@ out="$(GH_STUB_WAITING="$WAITING_RUN" GH_STUB_MERGEDPR="$MERGED_PR" \
   GH_STUB_PENDING="$PENDING_OK" run_approve "$log" --yes)"
 status=$?
 runs="$(approved_runs "$log")"
-if [ "$status" -eq 1 ] && [ "$runs" = "42" ] && [[ "$out" == *"run this again"* ]]; then
+if [ "$status" -eq 1 ] && [ "$runs" = "42" ] && [[ $out == *"run this again"* ]]; then
   pass "a Release Publish run that never appears fails after the tag, saying what to do"
 else
   fail "times out waiting for Release Publish" \
@@ -391,7 +391,7 @@ out="$(GH_STUB_WAITING="$WAITING_RUN" GH_STUB_MERGEDPR="$MERGED_PR" \
   RELEASE_APPROVE_TIMEOUT=2 run_approve "$log" --yes)"
 status=$?
 runs="$(approved_runs "$log")"
-if [ "$status" -eq 1 ] && [ "$runs" = "42" ] && [[ "$out" == *"without success"* ]]; then
+if [ "$status" -eq 1 ] && [ "$runs" = "42" ] && [[ $out == *"without success"* ]]; then
   pass "stops waiting when Release Tag fails"
 else
   fail "stops waiting when Release Tag fails" \
@@ -406,7 +406,7 @@ out="$(GH_STUB_WAITING="$WAITING_RUN" GH_STUB_MERGEDPR="$MERGED_PR" \
   run_approve "$log" --yes)"
 status=$?
 runs="$(approved_runs "$log")"
-if [ "$status" -eq 1 ] && [ "$runs" = "42" ] && [[ "$out" == *"v9.9.8"* ]]; then
+if [ "$status" -eq 1 ] && [ "$runs" = "42" ] && [[ $out == *"v9.9.8"* ]]; then
   pass "never approves a Release Publish run for a different tag"
 else
   fail "refuses a Release Publish run for another tag" \
@@ -422,7 +422,7 @@ out="$(GH_STUB_WAITING="$WAITING_RUN" GH_STUB_MERGEDPR="$MERGED_PR" \
   run_approve "$log" --yes)"
 status=$?
 runs="$(approved_runs "$log")"
-if [ "$status" -eq 1 ] && [ "$runs" = "42" ] && [[ "$out" == *"not dispatched on its tag"* ]]; then
+if [ "$status" -eq 1 ] && [ "$runs" = "42" ] && [[ $out == *"not dispatched on its tag"* ]]; then
   pass "never approves a same-named Release Publish run dispatched from another branch"
 else
   fail "refuses a publish run from another branch after the tag" \
@@ -438,7 +438,7 @@ out="$(GH_STUB_WAITING="$WAITING_RUN" GH_STUB_MERGEDPR="$MERGED_PR" \
   GH_STUB_TAG_SHA="$TAG_SHA" run_approve "$log" --yes)"
 status=$?
 runs="$(approved_runs "$log")"
-if [ "$status" -eq 1 ] && [ "$runs" = "42" ] && [[ "$out" == *"not on $TAG_SHA"* ]]; then
+if [ "$status" -eq 1 ] && [ "$runs" = "42" ] && [[ $out == *"not on $TAG_SHA"* ]]; then
   pass "never approves a dispatch on a branch named like the tag"
 else
   fail "refuses a dispatch on a branch named like the tag" \
@@ -465,7 +465,7 @@ runs="$(approved_runs "$log")"
 if [ "$status" -ne 0 ] || [ "$runs" != "43" ]; then
   fail "approves a waiting Release Publish run" \
     "Exited $status. Approved: '$runs'. Output: $out"
-elif [[ "$out" == *"v9.9.9"* && "$out" == *"$TAG_SHA"* ]]; then
+elif [[ $out == *"v9.9.9"* && $out == *"$TAG_SHA"* ]]; then
   pass "approves a waiting Release Publish run, naming its tag and commit"
 else
   fail "the publish summary names the tag and commit" "Got: $out"
@@ -499,7 +499,7 @@ out="$(GH_STUB_WAITING="$WAITING_RUN" GH_STUB_MERGEDPR="$MERGED_PR" \
   GH_STUB_PENDING="$PENDING_OK" run_approve "$log" --yes)"
 status=$?
 runs="$(approved_runs "$log")"
-if [ "$status" -eq 0 ] && [ "$runs" = "44" ] && [[ "$out" == *"run this again"* ]]; then
+if [ "$status" -eq 0 ] && [ "$runs" = "44" ] && [[ $out == *"run this again"* ]]; then
   pass "a waiting Release Publish run is approved before a waiting Release Tag run"
 else
   fail "approves the waiting publish run first" \
@@ -510,7 +510,7 @@ fi
 out="$(GH_STUB_PUBLISH_WAITING="$PUBLISH_RUN" GH_STUB_TAG_SHA="$TAG_SHA" \
   GH_STUB_PENDING="$PENDING_OK" run_approve "$log")"
 status=$?
-if [ "$status" -eq 1 ] && [[ "$out" == *"not a terminal"* ]] && [ ! -s "$log" ]; then
+if [ "$status" -eq 1 ] && [[ $out == *"not a terminal"* ]] && [ ! -s "$log" ]; then
   pass "a waiting Release Publish run is not approved unprompted without --yes"
 else
   fail "the publish path asks for confirmation" "Exited $status. Got: $out"
@@ -546,7 +546,7 @@ out="$(GH_STUB_PUBLISH_WAITING="$TAG_PUSH_PUBLISH_RUN" GH_STUB_TAG_SHA="$TAG_SHA
   GH_STUB_PENDING="$PENDING_OK" run_approve "$log" --yes)"
 status=$?
 runs="$(approved_runs "$log")"
-if [ "$status" -eq 0 ] && [ "$runs" = "48" ] && [[ "$out" == *"push on v9.9.9"* ]]; then
+if [ "$status" -eq 0 ] && [ "$runs" = "48" ] && [[ $out == *"push on v9.9.9"* ]]; then
   pass "a Release Publish run started by a push of its own tag is approved"
 else
   fail "approves the run a hand-pushed tag starts" \
@@ -570,7 +570,7 @@ done
 out="$(GH_STUB_PUBLISH_WAITING="$PUBLISH_RUN" GH_STUB_RELEASES='[]' \
   run_approve "$log" --status)"
 status=$?
-if [ "$status" -eq 0 ] && [[ "$out" == *"v9.9.9 publish"* && "$out" == *"https://example.invalid/run/43"* ]]; then
+if [ "$status" -eq 0 ] && [[ $out == *"v9.9.9 publish"* && $out == *"https://example.invalid/run/43"* ]]; then
   pass "--status reports a Release Publish run awaiting approval"
 else
   fail "--status reports a waiting publish run" "Exited $status. Got: $out"

@@ -36,7 +36,7 @@ report="$(cat "${REPORT_FILE}")"
 # the one unbounded section (the uncovered-lines list) on close to every long
 # report it was tried against.
 if [ "${#report}" -gt "${BODY_MAX}" ]; then
-  kept="${report:0:${BODY_MAX}}"
+  kept="${report:0:BODY_MAX}"
   kept="${kept%$'\n'*}"
   # `grep -o` exits 1 when nothing matches -- the common case for `closes`,
   # since a cut nearly always lands before the closing tag it is looking for
