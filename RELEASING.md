@@ -46,7 +46,7 @@ Release Tag dispatches Release Publish explicitly rather than relying on the tag
 - **Tags** are annotated and GPG-signed. **Release Tag** signs with the CI release key rather than a maintainer's personal key, verifies the signature before pushing, and refuses to reuse an existing tag that is not a validly signed annotated tag at the merge commit. The tag rulesets keep every `vX.Y.Z` tag from being moved or deleted once pushed.
 - **Commits** on `main` are signed, which a ruleset requires: GitHub signs the squash commit of every merge and the release PR's own commit, which the workflow makes through the API.
 - **Artifacts** each get a Sigstore keyless signature, made in CI through GitHub's OIDC identity, a GPG detached signature made with the release key, and a build provenance attestation that binds the artifact's digest to this repository, `release-publish.yml` and the tag.
-- The protected `release` environment is what keeps the key from being usable by anyone who can merge a `release/*` pull request: the tagging job and the publishing job each wait for the maintainer's approval before they run.
+- The protected `release` environment is what keeps the key from being usable by anyone who can merge a `release/*` pull request: the tagging job and Release Publish's signing job each wait for the maintainer's approval before they run, and the job that publishes needs what the signing job signed.
 
 ### One-time release key setup
 
