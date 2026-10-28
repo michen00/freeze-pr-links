@@ -1,14 +1,18 @@
 """Tests for the workflows' security and release properties.
 
-Each test reads a workflow definition and pins one property that a later edit could
-remove without any other check failing: who may write, what a privileged job checks
-out, what auto-merge waits for, and what tests a release once it is published. The
+Each test reads a workflow definition, or runs one step of it against a stub `gh`, and
+pins one property that a later edit could remove without any other check failing: who
+may write, what a privileged job checks out, what auto-merge waits for and whose
+commits it trusts, and what tests a release once it is published. The
 no-interpolation rule is in test_workflow_injection.py.
 """
 
+import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 __all__ = ()
@@ -105,6 +109,81 @@ def test_auto_merge_approves_as_github_actions() -> None:
     assert [line.strip() for line in merge] == [
         'GH_TOKEN="$ARM_TOKEN" gh pr merge --auto --squash "$PR_NUMBER"'
     ]
+
+
+def _run_provenance(tmp_path: Path, rows: list[str]) -> tuple[str, str]:
+    """Run the provenance step against a stub `gh`, returning `trusted` and the log.
+
+    The stub answers the commit listing with `origin|kind|author` rows, the shape the
+    step's jq filter produces, so this tests what the step trusts, not the filter.
+    """
+    step = _steps(_load('bot-automerge.yml'), 'bot-automerge')[
+        'Verify every commit was created by GitHub'
+    ]
+    stub_dir = tmp_path / 'bin'
+    stub_dir.mkdir()
+    stub = stub_dir / 'gh'
+    stub.write_text(
+        '#!/usr/bin/env bash\n'
+        'case "$*" in\n'
+        '  *"/commits "*) printf \'%s\' "$FAKE_ROWS" ;;\n'
+        '  *"--jq .commits") echo "$FAKE_TOTAL" ;;\n'
+        '  *) echo "fake gh: unexpected call: $*" >&2; exit 64 ;;\n'
+        'esac\n',
+        encoding='utf-8',
+    )
+    stub.chmod(0o755)
+    output = tmp_path / 'output'
+    output.touch()
+    result = subprocess.run(
+        ['bash', '-e', '-c', step['run']],
+        env={
+            **os.environ,
+            'PATH': f'{stub_dir}{os.pathsep}{os.environ["PATH"]}',
+            'GITHUB_OUTPUT': str(output),
+            'GH_REPO': 'michen00/freeze-pr-links',
+            'PR_NUMBER': '7',
+            'AUTHOR': 'dependabot[bot]',
+            'FAKE_ROWS': ''.join(f'{row}\n' for row in rows),
+            'FAKE_TOTAL': str(len(rows)),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    outputs = dict(
+        line.split('=', 1) for line in output.read_text(encoding='utf-8').splitlines()
+    )
+    return outputs['trusted'], result.stdout
+
+
+@pytest.mark.parametrize('merger', ['michen00', '<none>'])
+def test_a_merge_a_person_authored_holds_the_pull_request(
+    tmp_path: Path, merger: str
+) -> None:
+    """A merge made in GitHub's conflict editor is GitHub-signed and can carry anything.
+
+    It has two parents and the person as its author, so the author is what sets it
+    apart from a catch-up merge. `<none>` is a merge whose author email maps to no
+    account.
+    """
+    trusted, log = _run_provenance(
+        tmp_path, ['github|plain|dependabot[bot]', f'github|merge|{merger}']
+    )
+    assert trusted == 'false'
+    assert f'merge commit authored by {merger}, not a bot; holding.' in log
+
+
+@pytest.mark.parametrize('merger', ['github-actions[bot]', 'some-app[bot]'])
+def test_a_merge_a_bot_authored_keeps_the_pull_request_trusted(
+    tmp_path: Path, merger: str
+) -> None:
+    """pr-catchup.yml merges as github-actions[bot], or as the App when one is set."""
+    trusted, log = _run_provenance(
+        tmp_path, ['github|plain|dependabot[bot]', f'github|merge|{merger}']
+    )
+    assert trusted == 'true', log
 
 
 def test_the_kill_switch_reaches_every_pull_request() -> None:
