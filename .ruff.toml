@@ -26,12 +26,10 @@ exclude = [
   'node_modules',
   'site-packages',
   'venv',
-]  # Exclude a variety of commonly ignored directories.
+]
 
-# Same as Black.
 line-length = 88
 indent-width = 4
-
 target-version = 'py313'
 
 [lint]
@@ -45,26 +43,16 @@ ignore = [
   'TD003',  # missing-todo-link
 ]
 
-# `convention = 'google'` below disables D401, because Google style prescribes
-# descriptive docstring first lines. The constitution asks for imperative mood,
-# so re-enable it. D401 already exempts @property and "Whether ..." predicates.
-# Test files (`tests/**/test_*.py`) are exempt in [lint.per-file-ignores] because the
-# constitution requires test docstrings to be declarative truth-apt propositions rather
-# than imperative; helper modules (conftest.py, _*.py) keep D401 enforcement.
+# The google convention turns D401 (imperative mood) off; the constitution wants it.
 extend-select = ['D401']
-
-# Allow fix for all enabled rules (when `--fix`) is provided.
 fixable = ['ALL']
 unfixable = []
-
-# Allow unused variables when underscore-prefixed.
 dummy-variable-rgx = '^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$'
 
 [lint.flake8-quotes]
 inline-quotes = 'single'
 
 [lint.mccabe]
-# Flag errors (`C901`) whenever the complexity level exceeds `max-complexity`.
 max-complexity = 15
 
 [lint.per-file-ignores]
@@ -74,8 +62,7 @@ max-complexity = 15
   'F403',  # undefined-local-with-import-star
 ]
 'noxfile.py' = ['S603']  # subprocess-without-shell-equals-true
-# The PR checks are standalone CLIs: printing is their output, and the one
-# subprocess call is a fixed `git log` argv with no user-supplied executable.
+# Standalone CLIs that print their output and run a fixed `git log`.
 'checks/*.py' = ['T201']  # Use of print
 'checks/check_commit_messages.py' = [
   'S603',  # subprocess-without-shell-equals-true
@@ -83,34 +70,28 @@ max-complexity = 15
   'T201',  # Use of print
 ]
 'tests/**/*.py' = ['S101']  # Use of assert
-# Tests that drive git build throwaway repositories with it, as check_commit_messages
-# reads one.
+# Builds throwaway git repositories.
 'tests/test_checks.py' = [
   'S603',  # subprocess-without-shell-equals-true
   'S607',  # start-process-with-partial-path (`git` off PATH)
 ]
-# The PR-checks and coverage tests run a gate step or a comment script under `bash`,
-# against a stub `gh`, through helpers taking one keyword per stubbed input.
+# Run workflow steps under `bash` against a stub `gh`, one keyword per stub input.
 'tests/test_{coverage_comment,pr_findings_comment,pr_mechanical_checks_workflow}.py' = [
   'PLR0913',  # too-many-arguments (keyword-only stub inputs)
   'S603',  # subprocess-without-shell-equals-true
   'S607',  # start-process-with-partial-path (`bash` off PATH)
 ]
-# The catch-up tests run workflow step bodies and the approval script under `bash`,
-# against a stub `gh` put first on PATH, and pass stub tokens to the update loop.
+# Run workflow steps under `bash` against a stub `gh`, with stub tokens.
 'tests/test_{approve_bot_gated_runs,pr_catchup_workflow,release_scripts}.py' = [
   'S106',  # hardcoded-password-func-arg (stub tokens)
   'S603',  # subprocess-without-shell-equals-true
   'S607',  # start-process-with-partial-path (`bash` off PATH)
 ]
-# The workflow tests compare `env:` entries that name tokens, such as `GH_TOKEN`, with
-# the `${{ }}` expressions they should hold.
+# Compares token-named `env:` entries, such as `GH_TOKEN`, with their expressions.
 'tests/test_workflows.py' = ['S105']  # hardcoded-password-string
-# D401 (imperative-mood) is re-enabled globally above; exempt it ONLY for `test_*.py`,
-# where a docstring is a declarative truth-apt proposition.
+# A test docstring states what holds rather than commanding.
 'tests/**/test_*.py' = ['D401']
-# scripts/ holds standalone scripts, not an importable package, such as the coverage
-# report CI renders. They report on stdout.
+# Standalone scripts, not a package, that report on stdout.
 'scripts/*.py' = [
   'INP001',  # implicit-namespace-package
   'T201',  # Use of print
@@ -124,25 +105,9 @@ max-branches = 15
 max-returns = 10
 
 [format]
-# Unlike Black, use single quotes for strings.
 quote-style = 'single'
-
-# Like Black, indent with spaces, rather than tabs.
 indent-style = 'space'
-
-# Like Black, respect magic trailing commas.
 skip-magic-trailing-comma = false
-
-# Like Black, automatically detect the appropriate line ending.
 line-ending = 'auto'
-
-# Enable auto-formatting of code examples in docstrings. Markdown,
-# reStructuredText code/literal blocks and doctests are all supported.
 docstring-code-format = true
-
-# Set the line length limit used when formatting code snippets in
-# docstrings.
-#
-# This only has an effect when the `docstring-code-format` setting is
-# enabled.
 docstring-code-line-length = 'dynamic'
