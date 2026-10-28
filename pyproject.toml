@@ -1,39 +1,45 @@
+[build-system]
+build-backend = "uv_build"
+requires = [ "uv-build>=0.13.1,<0.14" ]
+
 [project]
-name = 'freeze-pr-links'
+name = "freeze-pr-links"
 version = "0.1.0"
 description = "Rewrite a merged pull request's head-branch links as commit permalinks"
-readme = 'README.md'
-authors = [{ name = 'Michael I Chen', email = 'michael.chen.0@gmail.com' }]
-requires-python = '>=3.13'
+readme = "README.md"
+authors = [ { name = "Michael I Chen", email = "michael.chen.0@gmail.com" } ]
+requires-python = ">=3.13"
+classifiers = [
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.13",
+]
 dependencies = []
-
-[project.scripts]
-freeze-pr-links = 'freeze_pr_links.core:main'
+scripts.freeze-pr-links = "freeze_pr_links.core:main"
 
 [dependency-groups]
+dev = [
+  { include-group = "ci" },
+  "basedpyright>=1.40.2",
+  "pip>=26.2.1",
+  "prek>=0.5.5",
+  "pylint>=4.1.3",
+  "ruff>=0.17.1",
+]
+test = [ "pytest>=9.1.1", "pytest-cov>=6.2.1", "pytest-xdist>=3.8", "pyyaml>=6.0.2" ]
 # What CI's jobs install for themselves: nox, which installs each session's own group,
 # and pre-commit, which the hook sessions run from this same environment.
-ci = ['nox[uv]>=2026.8.17', 'pre-commit>=4.7.0']
-dev = [
-    { include-group = 'ci' },
-    'basedpyright>=1.40.2',
-    'pip>=26.2.1',
-    'prek>=0.5.5',
-    'pylint>=4.1.3',
-    'ruff>=0.17.1',
-]
-test = ['pytest>=9.1.1', 'pytest-cov>=6.2.1', 'pytest-xdist>=3.8.0', 'pyyaml>=6.0.2']
+ci = [ "nox[uv]>=2026.8.17", "pre-commit>=4.7" ]
 
 [tool.uv]
 default-groups = []
-package        = true
+package = true
 
 [[tool.uv.index]]
-name        = 'testpypi'
-url         = 'https://test.pypi.org/simple/'
-publish-url = 'https://test.pypi.org/legacy/'
-explicit    = true
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+publish-url = "https://test.pypi.org/legacy/"
+explicit = true
 
-[build-system]
-requires      = ['uv_build>=0.13.1,<0.14.0']
-build-backend = 'uv_build'
+[tool.pyproject-fmt]
+# The newest Python CI tests.
+max_supported_python = "3.13"
