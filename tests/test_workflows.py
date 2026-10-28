@@ -165,7 +165,15 @@ def _dependabot_branch(tmp_path: Path) -> Path:
     return repo
 
 
-def _run_provenance(tmp_path: Path, repo: Path) -> tuple[str, str]:
+# Who the stub `gh` says each merge author is: `_ADMIN` is an admin, `_FLAKY`'s lookup
+# fails, and anyone else has write. `<none>` stands for an author GitHub cannot name;
+# the fixtures write it as `no-account`, since git strips `<` and `>` from a name.
+_ADMIN = 'michen00'
+_NON_ADMIN = 'contributor'
+_FLAKY = 'flaky-lookup'
+
+
+def _run_provenance(tmp_path: Path, repo: Path) -> tuple[str, str, list[str]]:
     """Run the provenance step on ``repo``'s branch as pull request 7.
 
     The branch becomes `refs/pull/7/head` on a bare origin, and the step runs in a clone
@@ -173,7 +181,10 @@ def _run_provenance(tmp_path: Path, repo: Path) -> tuple[str, str]:
     `git merge-tree` are real. The stub `gh` answers the commit listing with
     `origin|kind|author|sha|parents` rows built from the branch's real commits, the
     shape the step's jq filter produces, so this tests what the step trusts, not the
-    filter. Every commit reads as created by GitHub.
+    filter. Every commit reads as created by GitHub. It answers permission lookups as
+    `_ADMIN`, `_FLAKY` and write describe, and records each one.
+
+    Returns `trusted`, the step's log, and the logins it looked up.
     """
     step = _steps(_load('bot-automerge.yml'), 'bot-automerge')[
         'Verify every commit was created by GitHub'
@@ -188,6 +199,7 @@ def _run_provenance(tmp_path: Path, repo: Path) -> tuple[str, str]:
         _, *parents = _git(repo, 'rev-list', '--parents', '-n1', sha).split()
         kind = 'merge' if len(parents) >= 2 else 'plain'
         author = _git(repo, 'log', '-1', '--format=%an', sha)
+        author = '<none>' if author == 'no-account' else author
         rows.append(f'github|{kind}|{author}|{sha}|{" ".join(parents)}')
     stub_dir = tmp_path / 'bin'
     stub_dir.mkdir()
@@ -195,6 +207,14 @@ def _run_provenance(tmp_path: Path, repo: Path) -> tuple[str, str]:
     stub.write_text(
         '#!/usr/bin/env bash\n'
         'case "$*" in\n'
+        '  *"/collaborators/"*)\n'
+        '    login=${2#*/collaborators/}; login=${login%/permission}\n'
+        '    echo "$login" >>"$LOOKUP_LOG"\n'
+        '    case $login in\n'
+        f'      {_ADMIN}) echo admin ;;\n'
+        f'      {_FLAKY}) echo "gh: Server Error (HTTP 502)" >&2; exit 1 ;;\n'
+        '      *) echo write ;;\n'
+        '    esac ;;\n'
         '  *"/commits "*) printf \'%s\' "$FAKE_ROWS" ;;\n'
         '  *"--jq .commits") echo "$FAKE_TOTAL" ;;\n'
         '  *) echo "fake gh: unexpected call: $*" >&2; exit 64 ;;\n'
@@ -204,6 +224,8 @@ def _run_provenance(tmp_path: Path, repo: Path) -> tuple[str, str]:
     stub.chmod(0o755)
     output = tmp_path / 'output'
     output.touch()
+    lookups = tmp_path / 'lookups'
+    lookups.touch()
     env = {
         key: value for key, value in os.environ.items() if not key.startswith('GIT_')
     }
@@ -221,6 +243,7 @@ def _run_provenance(tmp_path: Path, repo: Path) -> tuple[str, str]:
             'AUTHOR': 'dependabot[bot]',
             'FAKE_ROWS': ''.join(f'{row}\n' for row in rows),
             'FAKE_TOTAL': str(len(rows)),
+            'LOOKUP_LOG': str(lookups),
         },
         capture_output=True,
         text=True,
@@ -230,70 +253,127 @@ def _run_provenance(tmp_path: Path, repo: Path) -> tuple[str, str]:
     outputs = dict(
         line.split('=', 1) for line in output.read_text(encoding='utf-8').splitlines()
     )
-    return outputs['trusted'], result.stdout
+    looked_up = lookups.read_text(encoding='utf-8').split()
+    return outputs['trusted'], result.stdout, looked_up
+
+
+_HELD = "is neither a clean merge of two parents nor an admin's; holding."
+
+
+def _edited_merge(repo: Path, author: str) -> None:
+    """Merge main cleanly as ``author``, then amend an extra edit into the merge."""
+    _git(repo, 'merge', '-q', '--no-ff', '--no-edit', 'main', author=author)
+    _write(repo, 'c.txt', f'c, edited in the merge by {author}')
+    _git(repo, 'commit', '-q', '--amend', '--no-edit', '--all', author=author)
+
+
+def _resolved_merge(repo: Path, author: str) -> None:
+    """Merge a conflicting main as ``author``, resolved by hand with an extra edit."""
+    _git(repo, 'switch', '-q', 'main')
+    _write(repo, 'a.txt', 'a, changed on main')
+    _git(repo, 'commit', '-qam', 'feat: change a', author=_ADMIN)
+    _git(repo, 'switch', '-q', 'bump')
+    with pytest.raises(subprocess.CalledProcessError):
+        _git(repo, 'merge', '-q', '--no-edit', 'main', author=author)
+    _write(repo, 'a.txt', 'whatever the resolver typed')
+    _write(repo, 'c.txt', 'and an edit elsewhere')
+    _git(repo, 'add', 'a.txt', 'c.txt')
+    _git(repo, 'commit', '-q', '--no-edit', author=author)
 
 
 @pytest.mark.parametrize(
-    'merger', ['github-actions[bot]', 'michen00'], ids=['catch-up', 'update-branch']
+    'merger',
+    ['github-actions[bot]', _NON_ADMIN, _ADMIN],
+    ids=['catch-up', 'update-branch-by-a-non-admin', 'update-branch-by-an-admin'],
 )
 def test_a_clean_merge_keeps_the_pull_request_trusted(
     tmp_path: Path, merger: str
 ) -> None:
-    """A clean merge of two branches passes, whoever authored it.
+    """A clean merge of two branches passes, whoever authored it, with no lookup.
 
     pr-catchup.yml merges as github-actions[bot] or as the App, and Update branch as
     the person who clicked it. GitHub makes either only when the merge is clean.
     """
     repo = _dependabot_branch(tmp_path)
     _git(repo, 'merge', '-q', '--no-ff', '--no-edit', 'main', author=merger)
-    trusted, log = _run_provenance(tmp_path, repo)
+    trusted, log, looked_up = _run_provenance(tmp_path, repo)
     assert trusted == 'true', log
+    assert looked_up == []
 
 
-def test_a_conflict_resolved_by_hand_holds_the_pull_request(tmp_path: Path) -> None:
-    """A merge resolved by hand holds, though GitHub signs it.
+def test_an_admins_resolved_merge_with_extra_edits_keeps_it_trusted(
+    tmp_path: Path,
+) -> None:
+    """An admin's merge passes even when it resolves a conflict and edits more."""
+    repo = _dependabot_branch(tmp_path)
+    _resolved_merge(repo, _ADMIN)
+    trusted, log, looked_up = _run_provenance(tmp_path, repo)
+    assert trusted == 'true', log
+    assert looked_up == [_ADMIN]
+
+
+def test_an_admin_is_looked_up_once_for_several_merges(tmp_path: Path) -> None:
+    """Two edited merges by one admin both pass on a single permission lookup."""
+    repo = _dependabot_branch(tmp_path)
+    _edited_merge(repo, _ADMIN)
+    _git(repo, 'switch', '-q', 'main')
+    _write(repo, 'b.txt', 'b, changed on main again')
+    _git(repo, 'commit', '-qam', 'feat: change b again', author=_ADMIN)
+    _git(repo, 'switch', '-q', 'bump')
+    _edited_merge(repo, _ADMIN)
+    trusted, log, looked_up = _run_provenance(tmp_path, repo)
+    assert trusted == 'true', log
+    assert looked_up == [_ADMIN]
+
+
+@pytest.mark.parametrize(
+    ('merger', 'lookups'),
+    [(_NON_ADMIN, [_NON_ADMIN]), (_FLAKY, [_FLAKY]), ('no-account', [])],
+    ids=['non-admin', 'failed-lookup', 'no-account'],
+)
+def test_an_edited_merge_by_anyone_but_an_admin_holds_the_pull_request(
+    tmp_path: Path, merger: str, lookups: list[str]
+) -> None:
+    """An extra edit in a merge holds it unless an admin made it.
+
+    A failed lookup, or an author GitHub cannot name, counts as not an admin, and the
+    latter is never looked up.
+    """
+    repo = _dependabot_branch(tmp_path)
+    _edited_merge(repo, merger)
+    trusted, log, looked_up = _run_provenance(tmp_path, repo)
+    assert trusted == 'false'
+    assert _HELD in log
+    assert looked_up == lookups
+
+
+def test_a_conflict_a_non_admin_resolved_by_hand_holds_the_pull_request(
+    tmp_path: Path,
+) -> None:
+    """A merge resolved by hand holds, though GitHub signs it, unless an admin made it.
 
     One resolved in GitHub's conflict editor can carry any content.
     """
     repo = _dependabot_branch(tmp_path)
-    _git(repo, 'switch', '-q', 'main')
-    _write(repo, 'a.txt', 'a, changed on main')
-    _git(repo, 'commit', '-qam', 'feat: change a', author='michen00')
-    _git(repo, 'switch', '-q', 'bump')
-    with pytest.raises(subprocess.CalledProcessError):
-        _git(repo, 'merge', '-q', '--no-edit', 'main', author='michen00')
-    _write(repo, 'a.txt', 'whatever the resolver typed')
-    _git(repo, 'add', 'a.txt')
-    _git(repo, 'commit', '-q', '--no-edit', author='michen00')
-    trusted, log = _run_provenance(tmp_path, repo)
+    _resolved_merge(repo, _NON_ADMIN)
+    trusted, log, _ = _run_provenance(tmp_path, repo)
     assert trusted == 'false'
-    assert 'is not a clean merge of two parents; holding.' in log
+    assert _HELD in log
 
 
-def test_a_clean_merge_with_an_extra_edit_holds_the_pull_request(
+def test_an_octopus_merge_by_a_non_admin_holds_the_pull_request(
     tmp_path: Path,
 ) -> None:
-    """An edit amended into a clean merge makes its tree differ from the clean merge."""
-    repo = _dependabot_branch(tmp_path)
-    _git(repo, 'merge', '-q', '--no-ff', '--no-edit', 'main', author='michen00')
-    _write(repo, 'c.txt', 'c, edited in the merge')
-    _git(repo, 'commit', '-q', '--amend', '--no-edit', '--all', author='michen00')
-    trusted, log = _run_provenance(tmp_path, repo)
-    assert trusted == 'false'
-    assert 'is not a clean merge of two parents; holding.' in log
-
-
-def test_an_octopus_merge_holds_the_pull_request(tmp_path: Path) -> None:
     """A clean merge of three branches has three parents, so it is not mechanical."""
     repo = _dependabot_branch(tmp_path)
     _git(repo, 'switch', '-qc', 'side', 'main~1')
     _write(repo, 'c.txt', 'c, changed on side')
     _git(repo, 'commit', '-qam', 'build: change c')
     _git(repo, 'switch', '-q', 'bump')
-    _git(repo, 'merge', '-q', '--no-ff', '--no-edit', 'main', 'side', author='michen00')
-    trusted, log = _run_provenance(tmp_path, repo)
+    _git(repo, 'merge', '-q', '--no-ff', '--no-edit', 'main', 'side', author=_NON_ADMIN)
+    trusted, log, _ = _run_provenance(tmp_path, repo)
     assert trusted == 'false'
-    assert 'is not a clean merge of two parents; holding.' in log
+    assert _HELD in log
 
 
 def test_the_kill_switch_reaches_every_pull_request() -> None:
