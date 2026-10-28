@@ -173,7 +173,9 @@ _NON_ADMIN = 'contributor'
 _FLAKY = 'flaky-lookup'
 
 
-def _run_provenance(tmp_path: Path, repo: Path) -> tuple[str, str, list[str]]:
+def _provenance(
+    tmp_path: Path, repo: Path, total: str | None = None
+) -> tuple[subprocess.CompletedProcess[str], dict[str, str], list[str]]:
     """Run the provenance step on ``repo``'s branch as pull request 7.
 
     The branch becomes `refs/pull/7/head` on a bare origin, and the step runs in a clone
@@ -182,9 +184,10 @@ def _run_provenance(tmp_path: Path, repo: Path) -> tuple[str, str, list[str]]:
     `origin|kind|author|sha|parents` rows built from the branch's real commits, the
     shape the step's jq filter produces, so this tests what the step trusts, not the
     filter. Every commit reads as created by GitHub. It answers permission lookups as
-    `_ADMIN`, `_FLAKY` and write describe, and records each one.
+    `_ADMIN`, `_FLAKY` and write describe, and records each one. It reports the commit
+    count as ``total`` when one is given, and as the number of rows otherwise.
 
-    Returns `trusted`, the step's log, and the logins it looked up.
+    Returns the finished step, the outputs it wrote, and the logins it looked up.
     """
     step = _steps(_load('bot-automerge.yml'), 'bot-automerge')[
         'Verify every commit was created by GitHub'
@@ -242,18 +245,26 @@ def _run_provenance(tmp_path: Path, repo: Path) -> tuple[str, str, list[str]]:
             'PR_NUMBER': '7',
             'AUTHOR': 'dependabot[bot]',
             'FAKE_ROWS': ''.join(f'{row}\n' for row in rows),
-            'FAKE_TOTAL': str(len(rows)),
+            'FAKE_TOTAL': str(len(rows)) if total is None else total,
             'LOOKUP_LOG': str(lookups),
         },
         capture_output=True,
         text=True,
         check=False,
     )
-    assert result.returncode == 0, result.stderr
     outputs = dict(
         line.split('=', 1) for line in output.read_text(encoding='utf-8').splitlines()
     )
-    looked_up = lookups.read_text(encoding='utf-8').split()
+    return result, outputs, lookups.read_text(encoding='utf-8').split()
+
+
+def _run_provenance(tmp_path: Path, repo: Path) -> tuple[str, str, list[str]]:
+    """Run the provenance step, which must succeed, on ``repo``'s branch.
+
+    Returns `trusted`, the step's log, and the logins it looked up.
+    """
+    result, outputs, looked_up = _provenance(tmp_path, repo)
+    assert result.returncode == 0, result.stderr
     return outputs['trusted'], result.stdout, looked_up
 
 
@@ -374,6 +385,22 @@ def test_an_octopus_merge_by_a_non_admin_holds_the_pull_request(
     trusted, log, _ = _run_provenance(tmp_path, repo)
     assert trusted == 'false'
     assert _HELD in log
+
+
+@pytest.mark.parametrize('total', ['null', '3abc', ''])
+def test_a_commit_count_that_is_not_an_integer_holds_the_pull_request(
+    tmp_path: Path, total: str
+) -> None:
+    """A count that is not an integer fails the step, leaving `trusted` unset.
+
+    Unguarded, the `-gt` and `-ne` tests error inside `if`, read as false, and the step
+    falls through to trusting the pull request.
+    """
+    repo = _dependabot_branch(tmp_path)
+    result, outputs, _ = _provenance(tmp_path, repo, total=total)
+    assert result.returncode != 0
+    assert 'trusted' not in outputs
+    assert "could not read the PR's commit count; holding." in result.stdout
 
 
 def test_the_kill_switch_reaches_every_pull_request() -> None:
