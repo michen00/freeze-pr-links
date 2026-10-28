@@ -466,7 +466,7 @@ def test_release_publish_smoke_tests_the_tag_it_published() -> None:
     assert smoke['needs'] == 'release-publish'
     assert smoke['with']['tag'] == '${{ needs.release-publish.outputs.tag }}'
     assert publish['jobs']['release-publish']['outputs']['tag'] == (
-        '${{ steps.release-tag.outputs.tag }}'
+        '${{ needs.build.outputs.tag }}'
     )
     triggers = _triggers(_load('release-smoke.yml'))
     assert triggers['workflow_call']['inputs']['tag']['required'] is True
