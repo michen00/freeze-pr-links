@@ -21,8 +21,7 @@ on:
         type: string
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: release-pr
@@ -49,10 +48,6 @@ jobs:
       !startsWith(github.event.head_commit.message, 'chore(release): prepare')
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Nothing in this job writes. The workflow-level block is what the job
-    # below needs; narrowing here keeps the read-only half read-only.
-    permissions:
-      contents: read
     outputs:
       release: ${{ steps.version.outputs.release }}
       tag: ${{ steps.version.outputs.tag }}
@@ -184,7 +179,9 @@ jobs:
             echo "branch=release/$tag"
           } >>"$GITHUB_OUTPUT"
 
-  release-pr:
+  # Stamps, formats and tests under the read-only token, so git-cliff, uv,
+  # pre-commit and the tests never run beside the write token `release-pr` needs.
+  prepare:
     needs: resolve
     if: needs.resolve.outputs.release == 'true'
     runs-on: ubuntu-latest
@@ -193,6 +190,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Install git-cliff
         uses: taiki-e/install-action@v2
@@ -249,6 +247,29 @@ jobs:
 
       - name: Run tests
         run: uv run --locked --only-group ci nox -s test
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-files
+          path: |
+            CHANGELOG.md
+            README.md
+            pyproject.toml
+            uv.lock
+          if-no-files-found: error
+
+  release-pr:
+    needs: [resolve, prepare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-files
 
       # The body is a Markdown file rather than an inline block, so that
       # yamllint's column limit does not force hard-wrapped paragraphs into a
