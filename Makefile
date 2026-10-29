@@ -69,6 +69,9 @@ help: ## Show this help message
 install: check-install-uv build/install-python-versions ## Install the project
 	$(UV) sync
 
+# develop sets each git option in .git/config, never by including a tracked file:
+# git would run whatever a checked-out branch put in that file. ignoreRevsFile
+# names a tracked file too, but git reads only revision IDs from it.
 .PHONY: develop
 WITH_HOOKS ?= true
 WITH_SYNC_MAIN ?= false
