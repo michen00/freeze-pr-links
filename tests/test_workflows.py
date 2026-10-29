@@ -112,10 +112,8 @@ def test_auto_merge_approves_as_github_actions() -> None:
 
 
 def _git(repo: Path, *args: str, author: str = 'dependabot[bot]') -> str:
-    """Run git in ``repo`` as ``author``, committed by GitHub, with no ambient config.
-
-    GIT_* variables a hook runner sets would point git at this repository instead.
-    """
+    """Run git in ``repo`` as ``author``, committed by GitHub, with no global config."""
+    # GIT_* variables a hook runner sets would point git at this repository instead.
     env = {
         key: value for key, value in os.environ.items() if not key.startswith('GIT_')
     }
@@ -178,14 +176,11 @@ def _provenance(
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, str], list[str]]:
     """Run the provenance step on ``repo``'s branch as pull request 7.
 
-    The branch becomes `refs/pull/7/head` on a bare origin, and the step runs in a clone
-    of origin's main, as the checkout before it leaves the runner, so its fetch and
-    `git merge-tree` are real. The stub `gh` answers the commit listing with
-    `origin|kind|author|sha|parents` rows built from the branch's real commits, the
-    shape the step's jq filter produces, so this tests what the step trusts, not the
-    filter. Every commit reads as created by GitHub. It answers permission lookups as
-    `_ADMIN`, `_FLAKY` and write describe, and records each one. It reports the commit
-    count as ``total`` when one is given, and as the number of rows otherwise.
+    The step runs in a clone of origin's main, with the branch as `refs/pull/7/head`, so
+    its fetch and `git merge-tree` are real. The stub `gh` lists the branch's real
+    commits in the step's row shape, each created by GitHub, so this tests what the step
+    trusts, not its jq filter. It reports the commit count as ``total`` if given, and as
+    the number of rows otherwise.
 
     Returns the finished step, the outputs it wrote, and the logins it looked up.
     """
@@ -300,11 +295,7 @@ def _resolved_merge(repo: Path, author: str) -> None:
 def test_a_clean_merge_keeps_the_pull_request_trusted(
     tmp_path: Path, merger: str
 ) -> None:
-    """A clean merge of two branches passes, whoever authored it, with no lookup.
-
-    pr-catchup.yml merges as github-actions[bot] or as the App, and Update branch as
-    the person who clicked it. GitHub makes either only when the merge is clean.
-    """
+    """A clean merge of two branches passes, whoever authored it, with no lookup."""
     repo = _dependabot_branch(tmp_path)
     _git(repo, 'merge', '-q', '--no-ff', '--no-edit', 'main', author=merger)
     trusted, log, looked_up = _run_provenance(tmp_path, repo)
@@ -345,11 +336,7 @@ def test_an_admin_is_looked_up_once_for_several_merges(tmp_path: Path) -> None:
 def test_an_edited_merge_by_anyone_but_an_admin_holds_the_pull_request(
     tmp_path: Path, merger: str, lookups: list[str]
 ) -> None:
-    """An extra edit in a merge holds it unless an admin made it.
-
-    A failed lookup, or an author GitHub cannot name, counts as not an admin, and the
-    latter is never looked up.
-    """
+    """An extra edit in a merge holds it unless an admin made it."""
     repo = _dependabot_branch(tmp_path)
     _edited_merge(repo, merger)
     trusted, log, looked_up = _run_provenance(tmp_path, repo)
@@ -361,10 +348,7 @@ def test_an_edited_merge_by_anyone_but_an_admin_holds_the_pull_request(
 def test_a_conflict_a_non_admin_resolved_by_hand_holds_the_pull_request(
     tmp_path: Path,
 ) -> None:
-    """A merge resolved by hand holds, though GitHub signs it, unless an admin made it.
-
-    One resolved in GitHub's conflict editor can carry any content.
-    """
+    """A merge resolved by hand holds the pull request, though GitHub signs it."""
     repo = _dependabot_branch(tmp_path)
     _resolved_merge(repo, _NON_ADMIN)
     trusted, log, _ = _run_provenance(tmp_path, repo)
@@ -391,11 +375,7 @@ def test_an_octopus_merge_by_a_non_admin_holds_the_pull_request(
 def test_a_commit_count_that_is_not_an_integer_holds_the_pull_request(
     tmp_path: Path, total: str
 ) -> None:
-    """A count that is not an integer fails the step, leaving `trusted` unset.
-
-    Unguarded, the `-gt` and `-ne` tests error inside `if`, read as false, and the step
-    falls through to trusting the pull request.
-    """
+    """A count that is not an integer fails the step, leaving `trusted` unset."""
     repo = _dependabot_branch(tmp_path)
     result, outputs, _ = _provenance(tmp_path, repo, total=total)
     assert result.returncode != 0
