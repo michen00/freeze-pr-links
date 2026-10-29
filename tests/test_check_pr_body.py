@@ -3,6 +3,7 @@
 The required sections are this repository's template's, Summary and Testing.
 """
 
+import time
 from pathlib import Path
 
 import pytest
@@ -211,6 +212,29 @@ def test_a_placeholder_warning_names_the_slot_it_found() -> None:
 
     assert found.ok
     assert any('<change-specific verification>' in w for w in found.warnings)
+
+
+def test_placeholder_scan_is_linear_in_unclosed_brackets() -> None:
+    """A line of `<` with no `>` is scanned in linear time, not quadratic.
+
+    Regression for CodeQL alert py/polynomial-redos: a slot that could contain `<`
+    made each `<` read to the end of the line, so a body of 65,536 of them (GitHub's
+    limit) took over 20 seconds. The bound is loose; the linear scan takes milliseconds.
+    """
+    body = '## Summary\n\n' + '<' * 65_536 + '\n\n## Testing\n\n- [x] ok\n'
+    start = time.perf_counter()
+    found = check_body(body, ['Summary', 'Testing'])
+
+    assert time.perf_counter() - start < 1.0
+    assert found.ok
+
+
+def test_a_slot_after_a_stray_bracket_is_still_found() -> None:
+    """A `<` before a slot is not part of it, so the slot alone is quoted."""
+    body = '## Summary\n\na <<reason>\n\n## Testing\n\n- [x] ok\n'
+    found = check_body(body, ['Summary', 'Testing'])
+
+    assert any('placeholder <reason> ' in w for w in found.warnings)
 
 
 def test_every_body_finding_says_what_to_do_about_it() -> None:

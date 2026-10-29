@@ -45,7 +45,7 @@ _HTML_TAGS = frozenset(
         'sup',
     }
 )
-_PLACEHOLDER = re.compile(r'<([^>\n]+)>')
+_PLACEHOLDER = re.compile(r'<([^<>\n]+)>')
 _TBD = re.compile(r'\b(?:TBD|TODO)\b')
 _INLINE_CODE = re.compile(r'(?P<ticks>`+).+?(?P=ticks)')
 _MARKDOWNLINT = re.compile(
