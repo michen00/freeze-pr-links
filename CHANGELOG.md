@@ -6,11 +6,27 @@ All notable changes will be documented in this file. See [conventional commits](
 
 The format is based on [Keep a Changelog](https://keepachangelog.com) and this project adheres to [Semantic Versioning](https://semver.org).
 
+## [0.1.1](https://github.com/michen00/freeze-pr-links/compare/v0.1.0..v0.1.1) - 2026-10-30
+
+### 🐛 Fixes
+
+- **(ci)** make the placeholder scan linear ([#37](https://github.com/michen00/freeze-pr-links/issues/37)) - ([39dcef7](https://github.com/michen00/freeze-pr-links/commit/39dcef714509b9832528e485a41e64499eb58d8c)) - [@michen00](https://github.com/michen00)
+- **(ci)** restore contents write to the disarm job ([#35](https://github.com/michen00/freeze-pr-links/issues/35)) - ([80445a3](https://github.com/michen00/freeze-pr-links/commit/80445a39e6e8eb6f4fc46b14d770e5a676ec9d90)) - [@michen00](https://github.com/michen00)
+
+### 👥 Contributors
+
+- [@michen00](https://github.com/michen00) | [Michael I Chen](mailto:michen00.github@gmail.com)
+
 ## [0.1.0] - 2026-10-20
 
 ### ✨ Features
 
 - add the link-freezing action ([#5](https://github.com/michen00/freeze-pr-links/issues/5)) - ([0a16451](https://github.com/michen00/freeze-pr-links/commit/0a16451d077546b422a5bce84896da76c6556731)) - [@michen00](https://github.com/michen00)
+
+### 🐛 Fixes
+
+- **(release)** start the first release at v0.1.0 ([#10](https://github.com/michen00/freeze-pr-links/issues/10)) - ([555e3c3](https://github.com/michen00/freeze-pr-links/commit/555e3c37326a9d79721a809fdd41f36370914bde)) - [@michen00](https://github.com/michen00)
+- map installed coverage paths to src/ ([#7](https://github.com/michen00/freeze-pr-links/issues/7)) - ([9143d28](https://github.com/michen00/freeze-pr-links/commit/9143d284d2ea95b49bb73b94237d815522ef58fa)) - [@michen00](https://github.com/michen00)
 
 ### 👥 Contributors
 
