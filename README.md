@@ -34,7 +34,7 @@ jobs:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
-      - uses: michen00/freeze-pr-links@v0.1.0
+      - uses: michen00/freeze-pr-links@v0.1.1
 ```
 
 To freeze a pull request that merged before the workflow existed, add a `workflow_dispatch` trigger with a `pr_number` input and pass it as `pr-number: ${{ github.event.pull_request.number || inputs.pr_number }}`. This repository's own [workflow](.github/workflows/freeze-pr-links.yml) does that.
