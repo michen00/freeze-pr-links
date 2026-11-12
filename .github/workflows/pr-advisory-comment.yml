@@ -47,7 +47,7 @@ jobs:
       # pull request, so the script this runs is the reviewed one. That is the whole
       # security property, and it is a default rather than a setting, so a future edit
       # adding `ref:` here would quietly undo it.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       # continue-on-error, because the gate skips the upload for a bot-authored pull
@@ -56,7 +56,7 @@ jobs:
       - name: Download the findings
         id: findings
         continue-on-error: true
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: pr-advisory-findings
           path: ${{ runner.temp }}/advisory
