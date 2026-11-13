@@ -69,7 +69,7 @@ repos:
       - id: prettier
         types_or: [css, html, javascript, json, markdown, scss, ts, yaml]
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.3
+    rev: v0.17.4
     hooks:
       - id: ruff-check
         types_or: [pyi, python, toml]
@@ -82,11 +82,11 @@ repos:
       - id: shfmt
   # pyproject-fmt owns pyproject.toml; tombi.toml keeps tombi's formatter off it.
   - repo: https://github.com/tox-dev/pyproject-fmt
-    rev: v2.30.3
+    rev: v2.30.6
     hooks:
       - id: pyproject-fmt
   - repo: https://github.com/tombi-toml/tombi-pre-commit
-    rev: v1.9.8
+    rev: v1.10.0
     hooks:
       - id: tombi-format
   # Before markdownlint, so its --fix sees the final text; nothing here rewraps prose.
@@ -119,7 +119,7 @@ repos:
       - id: name-tests-test
         args: [--pytest-test-first]
   - repo: https://github.com/tombi-toml/tombi-pre-commit
-    rev: v1.9.8
+    rev: v1.10.0
     hooks:
       - id: tombi-lint
   - repo: https://github.com/adrienverge/yamllint.git
@@ -128,7 +128,7 @@ repos:
       - id: yamllint
         args: [--strict]
   - repo: https://github.com/adhtruong/mirrors-typos
-    rev: v1.51.1
+    rev: v1.52.0
     hooks:
       - id: typos
   - repo: https://github.com/codespell-project/codespell
@@ -146,7 +146,7 @@ repos:
 
   # static type analysis
   - repo: https://github.com/astral-sh/ty-pre-commit
-    rev: v0.0.95
+    rev: v0.0.98
     hooks:
       - id: ty
         # --all-groups because default-groups is empty and the tests need their imports;
