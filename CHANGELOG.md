@@ -6,7 +6,17 @@ All notable changes will be documented in this file. See [conventional commits](
 
 The format is based on [Keep a Changelog](https://keepachangelog.com) and this project adheres to [Semantic Versioning](https://semver.org).
 
-## [0.1.1](https://github.com/michen00/freeze-pr-links/compare/v0.1.0..v0.1.1) - 2026-11-13
+## [0.1.2](https://github.com/michen00/freeze-pr-links/compare/v0.1.1..v0.1.2) - 2026-11-14
+
+### 🐛 Fixes
+
+- **(release)** sign with a Sigstore bundle ([#52](https://github.com/michen00/freeze-pr-links/issues/52)) - ([8c1c2a7](https://github.com/michen00/freeze-pr-links/commit/8c1c2a71412f92473be87579d54b57090cbe43c1)) - [@michen00](https://github.com/michen00)
+
+### 👥 Contributors
+
+- [@michen00](https://github.com/michen00) | [Michael I Chen](mailto:michen00.github@gmail.com)
+
+## [0.1.1](https://github.com/michen00/freeze-pr-links/compare/v0.1.0..v0.1.1) - 2026-11-14
 
 ### 🐛 Fixes
 
