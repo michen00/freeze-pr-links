@@ -11,6 +11,6 @@ This PR prepares release `@RELEASE_TAG@`.
 
 ## Before merging
 
-GitHub starts no workflow for a pull request that the default token opened, so this one's checks have not run. Mark it as a draft and then ready for review again to start them.
+GitHub starts no workflow for a pull request that the default token opened, so this one's checks have not run. Close it and reopen it to start them. Closing it does not tag anything, because Release Tag acts only on a merge.
 
 Merging this PR does not publish anything yet. `make release-approve` approves the two runs that wait on the `release` environment: one creates and pushes the signed tag `@RELEASE_TAG@`, and the other publishes the signed artifacts to the GitHub release.

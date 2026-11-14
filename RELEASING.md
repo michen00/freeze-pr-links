@@ -7,7 +7,7 @@ The flow is automated except for two approvals, which are deliberate: they are w
 ## Default flow
 
 1. **Release PR** (`.github/workflows/release-pr.yml`) opens the release PR by itself when a commit worth releasing lands on `main`. Every Conventional Commit type bumps at least the patch version, so the version cannot decide that alone; the workflow counts the commits `cliff.toml` puts in its features, fixes, performance and revert groups, plus anything marked breaking. Run the workflow by hand, or `make release-pr`, to choose the version or to release a batch with none of those; a manual run skips that check. Leave `version` empty to derive it with `git cliff --bumped-version`, or pass `X.Y.Z` or `vX.Y.Z`. The pull request stamps the version into `CHANGELOG.md`, `pyproject.toml`, `uv.lock` and the README's usage snippet, and its commit is signed by GitHub.
-1. **Start its checks.** GitHub starts no workflow for a pull request that the default token opened. Mark the release PR as a draft and then ready for review again, and the required checks run.
+1. **Start its checks.** GitHub starts no workflow for a pull request that the default token opened. Close the release PR and reopen it, and the required checks run. Marking it as a draft and then ready does not start them, because `CI.yml` and `pr-mechanical-checks.yml` do not run on `ready_for_review`. Closing it does not tag anything: **Release Tag** acts only on a merge.
 1. Review and merge it (`chore(release): prepare vX.Y.Z`).
 1. **Approve the release.** Run `make release-approve`. It finds the waiting **Release Tag** run, shows the tag it will create and the commit that tag will point at, and asks you to confirm. It then waits for the **Release Publish** run that the new tag dispatches and approves that too. Each run can also be approved from its page on GitHub. Rejecting the first approval leaves no tag behind.
 1. **Release Tag** (`.github/workflows/release-tag.yml`) runs when a `release/*` branch from this repository merges into `main`, and waits on the protected `release` environment. Once approved, it creates a GPG-signed annotated tag, verifies it, pushes it, and dispatches **Release Publish** on that tag.
@@ -45,7 +45,7 @@ Release Tag dispatches Release Publish explicitly rather than relying on the tag
 
 - **Tags** are annotated and GPG-signed. **Release Tag** signs with the CI release key rather than a maintainer's personal key, verifies the signature before pushing, and refuses to reuse an existing tag that is not a validly signed annotated tag at the merge commit. The tag rulesets keep every `vX.Y.Z` tag from being moved or deleted once pushed.
 - **Commits** on `main` are signed, which a ruleset requires: GitHub signs the squash commit of every merge and the release PR's own commit, which the workflow makes through the API.
-- **Artifacts** each get a Sigstore keyless signature, made in CI through GitHub's OIDC identity, a GPG detached signature made with the release key, and a build provenance attestation that binds the artifact's digest to this repository, `release-publish.yml` and the tag.
+- **Artifacts** each get a Sigstore keyless signature, made in CI through GitHub's OIDC identity and saved with its certificate as a `.sigstore.json` bundle, a GPG detached signature made with the release key, and a build provenance attestation that binds the artifact's digest to this repository, `release-publish.yml` and the tag.
 - The protected `release` environment is what keeps the key from being usable by anyone who can merge a `release/*` pull request: the tagging job and Release Publish's signing job each wait for the maintainer's approval before they run, and the job that publishes needs what the signing job signed.
 
 ### One-time release key setup
@@ -87,7 +87,7 @@ gh attestation verify artifact --repo michen00/freeze-pr-links \
   --source-ref refs/tags/vX.Y.Z
 
 # An artifact, by Sigstore
-cosign verify-blob --signature artifact.sig --certificate artifact.pem \
+cosign verify-blob --bundle artifact.sigstore.json \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity 'https://github.com/michen00/freeze-pr-links/.github/workflows/release-publish.yml@refs/tags/vX.Y.Z' \
   artifact
