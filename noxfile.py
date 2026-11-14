@@ -19,7 +19,7 @@ if typing.TYPE_CHECKING:
 
 nox.options.default_venv_backend = 'uv|venv'
 
-_ANALYSIS_HOOKS = ('ty', 'basedpyright', 'pylint')
+_ANALYSIS_HOOKS = 'ty', 'basedpyright', 'pylint'
 """The hooks that check against the project environment, which `analysis` runs."""
 
 _SECRET_HOOKS = ('gitleaks',)
