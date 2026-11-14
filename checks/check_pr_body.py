@@ -16,7 +16,7 @@ Usage:
 
 from __future__ import annotations
 
-__all__ = ('check_body', 'main')
+__all__ = 'check_body', 'main'
 
 import argparse
 import re
@@ -29,7 +29,7 @@ from ._common import Findings
 if typing.TYPE_CHECKING:
     from collections.abc import Iterator
 
-_REQUIRED = ('Summary', 'Testing')
+_REQUIRED = 'Summary', 'Testing'
 _HTML_TAGS = frozenset(
     {
         'b',
