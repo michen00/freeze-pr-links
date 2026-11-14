@@ -102,13 +102,33 @@ def test_auto_merge_approves_as_github_actions() -> None:
         '${{ steps.app-token.outputs.token || github.token }}'
     )
     lines = arm['run'].splitlines()
-    approve = [line for line in lines if 'gh pr review --approve' in line]
+    approve = [line for line in lines if '/reviews"' in line]
     merge = [line for line in lines if 'gh pr merge --auto' in line]
     assert len(approve) == 1
     assert 'ARM_TOKEN' not in approve[0]
-    assert [line.strip() for line in merge] == [
-        'GH_TOKEN="$ARM_TOKEN" gh pr merge --auto --squash "$PR_NUMBER"'
+    assert len(merge) == 1
+    assert merge[0].strip().startswith('GH_TOKEN="$ARM_TOKEN" ')
+
+
+def test_auto_merge_approves_and_arms_only_the_verified_head() -> None:
+    """The approval names the commit the provenance step inspected, and so does arming.
+
+    Without both, a push between the check and the approval would be approved and
+    merged unchecked: GitHub approves whatever the head is, and arms it.
+    """
+    arm = _steps(_load('bot-automerge.yml'), 'bot-automerge')[
+        'Re-check the kill switch, then approve and arm'
     ]
+    assert arm['env']['VERIFIED_HEAD'] == '${{ steps.provenance.outputs.head }}'
+    script = ' '.join(arm['run'].replace('\\\n', ' ').split())
+    assert 'gh pr review' not in script
+    assert (
+        'gh api -X POST "repos/${GH_REPO}/pulls/${PR_NUMBER}/reviews" '
+        '-f event=APPROVE -f commit_id="$VERIFIED_HEAD"'
+    ) in script
+    assert (
+        'gh pr merge --auto --squash --match-head-commit "$VERIFIED_HEAD" "$PR_NUMBER"'
+    ) in script
 
 
 def _git(repo: Path, *args: str, author: str = 'dependabot[bot]') -> str:
@@ -169,10 +189,27 @@ def _dependabot_branch(tmp_path: Path) -> Path:
 _ADMIN = 'michen00'
 _NON_ADMIN = 'contributor'
 _FLAKY = 'flaky-lookup'
+_ZERO = '0' * 40
+
+
+def _created(after: str, pusher: str = 'dependabot[bot]') -> str:
+    """Return the push-history record of ``pusher`` creating the branch at ``after``."""
+    return f'branch_creation|{pusher}|{_ZERO}|{after}'
+
+
+def _pushed(pusher: str, before: str, after: str, change: str = 'push') -> str:
+    """Return the push-history record of ``pusher`` moving the branch to ``after``."""
+    return f'{change}|{pusher}|{before}|{after}'
 
 
 def _provenance(
-    tmp_path: Path, repo: Path, total: str | None = None
+    tmp_path: Path,
+    repo: Path,
+    *,
+    total: str | None = None,
+    head: str | None = None,
+    event_head: str | None = None,
+    pushes: list[str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, str], list[str]]:
     """Run the provenance step on ``repo``'s branch as pull request 7.
 
@@ -180,7 +217,10 @@ def _provenance(
     its fetch and `git merge-tree` are real. The stub `gh` lists the branch's real
     commits in the step's row shape, each created by GitHub, so this tests what the step
     trusts, not its jq filter. It reports the commit count as ``total`` if given, and as
-    the number of rows otherwise.
+    the number of rows otherwise, and the head as ``head`` if given, and as the branch's
+    tip otherwise. The event brings ``event_head``, by default the head the stub
+    reports. The stub lists ``pushes`` as the branch's push history, newest first, by
+    default Dependabot creating the branch at that head.
 
     Returns the finished step, the outputs it wrote, and the logins it looked up.
     """
@@ -190,6 +230,9 @@ def _provenance(
     origin = tmp_path / 'origin.git'
     _git(tmp_path, 'clone', '-q', '--mirror', str(repo), str(origin))
     _git(origin, 'update-ref', 'refs/pull/7/head', _git(repo, 'rev-parse', 'HEAD'))
+    # GitHub serves a commit by its SHA after a force push has left it unreachable.
+    _git(origin, 'config', 'uploadpack.allowAnySHA1InWant', 'true')
+    reported = _git(repo, 'rev-parse', 'HEAD') if head is None else head
     runner = tmp_path / 'runner'
     _git(tmp_path, 'clone', '-q', '--branch', 'main', str(origin), str(runner))
     rows = []
@@ -205,6 +248,7 @@ def _provenance(
     stub.write_text(
         '#!/usr/bin/env bash\n'
         'case "$*" in\n'
+        '  *"/activity "*) printf \'%s\' "$FAKE_PUSHES" ;;\n'
         '  *"/collaborators/"*)\n'
         '    login=${2#*/collaborators/}; login=${login%/permission}\n'
         '    echo "$login" >>"$LOOKUP_LOG"\n'
@@ -215,11 +259,17 @@ def _provenance(
         '    esac ;;\n'
         '  *"/commits "*) printf \'%s\' "$FAKE_ROWS" ;;\n'
         '  *"--jq .commits") echo "$FAKE_TOTAL" ;;\n'
+        '  *"--jq .head.sha") echo "$FAKE_HEAD" ;;\n'
         '  *) echo "fake gh: unexpected call: $*" >&2; exit 64 ;;\n'
         'esac\n',
         encoding='utf-8',
     )
     stub.chmod(0o755)
+    sleep = stub_dir / 'sleep'
+    sleep.write_text(
+        '#!/usr/bin/env bash\necho "$1" >>"$SLEEP_LOG"\n', encoding='utf-8'
+    )
+    sleep.chmod(0o755)
     output = tmp_path / 'output'
     output.touch()
     lookups = tmp_path / 'lookups'
@@ -239,9 +289,16 @@ def _provenance(
             'GH_REPO': 'michen00/freeze-pr-links',
             'PR_NUMBER': '7',
             'AUTHOR': 'dependabot[bot]',
+            'EVENT_HEAD': reported if event_head is None else event_head,
+            'HEAD_REF': 'bump',
+            'FAKE_PUSHES': ''.join(
+                f'{push}\n' for push in pushes or [_created(reported)]
+            ),
             'FAKE_ROWS': ''.join(f'{row}\n' for row in rows),
             'FAKE_TOTAL': str(len(rows)) if total is None else total,
+            'FAKE_HEAD': reported,
             'LOOKUP_LOG': str(lookups),
+            'SLEEP_LOG': str(tmp_path / 'sleeps'),
         },
         capture_output=True,
         text=True,
@@ -381,6 +438,243 @@ def test_a_commit_count_that_is_not_an_integer_holds_the_pull_request(
     assert result.returncode != 0
     assert 'trusted' not in outputs
     assert "could not read the PR's commit count; holding." in result.stdout
+
+
+def test_a_trusted_verdict_names_the_head_it_inspected(tmp_path: Path) -> None:
+    """A trusted run outputs its head commit, which approving and arming then name."""
+    repo = _dependabot_branch(tmp_path)
+    result, outputs, _ = _provenance(tmp_path, repo)
+    assert result.returncode == 0, result.stderr
+    assert outputs == {'trusted': 'true', 'head': _git(repo, 'rev-parse', 'HEAD')}
+
+
+def test_a_head_that_moved_during_the_check_holds_the_pull_request(
+    tmp_path: Path,
+) -> None:
+    """A head the API reports that is not the commit inspected holds, naming no head."""
+    repo = _dependabot_branch(tmp_path)
+    moved = _git(repo, 'rev-parse', 'main')
+    result, outputs, _ = _provenance(tmp_path, repo, head=moved, event_head=moved)
+    assert result.returncode == 0, result.stderr
+    assert outputs == {'trusted': 'false'}
+    assert 'the head moved while it was being inspected; holding.' in result.stdout
+
+
+# An App's login, as a catch-up push reports its pusher. The stub `gh` gives it write.
+_APP = 'catch-up-app[bot]'
+
+
+def _tip(repo: Path) -> str:
+    """Return the branch's tip."""
+    return _git(repo, 'rev-parse', 'HEAD')
+
+
+@pytest.mark.parametrize('pusher', [_NON_ADMIN, _APP])
+def test_a_plain_commit_pushed_by_anyone_but_dependabot_or_an_admin_holds(
+    tmp_path: Path, pusher: str
+) -> None:
+    """A commit authored as Dependabot passes the per-commit rules; its pusher does not.
+
+    GitHub signs a commit an App or a token creates through its API, with any author,
+    so only the push, which GitHub attributes itself, shows who added it.
+    """
+    repo = _dependabot_branch(tmp_path)
+    created = _tip(repo)
+    _write(repo, 'c.txt', 'c, changed by someone posing as Dependabot')
+    _git(repo, 'commit', '-qam', 'build: bump c')
+    pushes = [_pushed(pusher, created, _tip(repo)), _created(created)]
+    result, outputs, _ = _provenance(tmp_path, repo, pushes=pushes)
+    assert result.returncode == 0, result.stderr
+    assert outputs == {'trusted': 'false'}
+    assert 'which is not a clean merge of two parents; holding.' in result.stdout
+
+
+def test_a_clean_merge_pushed_by_an_app_keeps_the_pull_request_trusted(
+    tmp_path: Path,
+) -> None:
+    """A catch-up push is a clean merge of main, so an App pushing one passes.
+
+    Main's own commits come in with the merge; they are not the pusher's, so only the
+    merge is held to the rule.
+    """
+    repo = _dependabot_branch(tmp_path)
+    created = _tip(repo)
+    _git(repo, 'merge', '-q', '--no-ff', '--no-edit', 'main', author=_APP)
+    pushes = [_pushed(_APP, created, _tip(repo)), _created(created)]
+    result, outputs, looked_up = _provenance(tmp_path, repo, pushes=pushes)
+    assert result.returncode == 0, result.stderr
+    assert outputs['trusted'] == 'true', result.stdout
+    assert looked_up == [_APP]
+
+
+def test_a_plain_commit_hidden_behind_a_clean_merge_holds(tmp_path: Path) -> None:
+    """A plain commit brought in through a merge's second parent is still checked."""
+    repo = _dependabot_branch(tmp_path)
+    created = _tip(repo)
+    _git(repo, 'switch', '-qc', 'smuggled', 'main')
+    _write(repo, 'c.txt', 'c, smuggled in')
+    _git(repo, 'commit', '-qam', 'build: bump c')
+    _git(repo, 'switch', '-q', 'bump')
+    _git(repo, 'merge', '-q', '--no-ff', '--no-edit', 'smuggled', author=_APP)
+    pushes = [_pushed(_APP, created, _tip(repo)), _created(created)]
+    result, outputs, _ = _provenance(tmp_path, repo, pushes=pushes)
+    assert result.returncode == 0, result.stderr
+    assert outputs == {'trusted': 'false'}
+    assert 'which is not a clean merge of two parents; holding.' in result.stdout
+
+
+def test_a_held_push_stays_held_after_a_clean_push(tmp_path: Path) -> None:
+    """A clean catch-up push does not vouch for a plain commit an earlier push added.
+
+    The run on the catch-up sees only a clean merge in its own push, so the earlier
+    push is found in the branch's push history.
+    """
+    repo = _dependabot_branch(tmp_path)
+    created = _tip(repo)
+    _write(repo, 'c.txt', 'c, changed by someone posing as Dependabot')
+    _git(repo, 'commit', '-qam', 'build: bump c')
+    smuggled = _tip(repo)
+    _git(repo, 'merge', '-q', '--no-ff', '--no-edit', 'main', author=_APP)
+    pushes = [
+        _pushed(_APP, smuggled, _tip(repo)),
+        _pushed(_APP, created, smuggled),
+        _created(created),
+    ]
+    result, outputs, _ = _provenance(tmp_path, repo, pushes=pushes)
+    assert result.returncode == 0, result.stderr
+    assert outputs == {'trusted': 'false'}
+    assert f'{_APP} pushed {smuggled}, which is not a clean merge' in result.stdout
+
+
+@pytest.mark.parametrize(
+    ('pusher', 'trusted'), [(_NON_ADMIN, 'false'), (_ADMIN, 'true')]
+)
+def test_a_merge_authored_as_an_admin_passes_only_when_an_admin_pushed_it(
+    tmp_path: Path, pusher: str, trusted: str
+) -> None:
+    """An author login comes from an email, so the pusher decides a resolved merge."""
+    repo = _dependabot_branch(tmp_path)
+    created = _tip(repo)
+    _resolved_merge(repo, _ADMIN)
+    pushes = [_pushed(pusher, created, _tip(repo)), _created(created)]
+    result, outputs, _ = _provenance(tmp_path, repo, pushes=pushes)
+    assert result.returncode == 0, result.stderr
+    assert outputs['trusted'] == trusted, result.stdout
+
+
+def test_a_change_other_than_a_push_holds(tmp_path: Path) -> None:
+    """Only a push or a branch creation can be checked commit by commit."""
+    repo = _dependabot_branch(tmp_path)
+    created = _tip(repo)
+    _git(repo, 'merge', '-q', '--no-ff', '--no-edit', 'main', author=_APP)
+    pushes = [_pushed(_APP, created, _tip(repo), change='pr_merge'), _created(created)]
+    result, outputs, _ = _provenance(tmp_path, repo, pushes=pushes)
+    assert result.returncode == 0, result.stderr
+    assert outputs == {'trusted': 'false'}
+    assert f'{_APP} changed the branch by pr_merge; holding.' in result.stdout
+
+
+def test_only_pushes_since_the_branch_was_last_created_count(tmp_path: Path) -> None:
+    """Pushes to an earlier branch of the same name are never read.
+
+    Their commits are made up here, so reading them would fail the step.
+    """
+    repo = _dependabot_branch(tmp_path)
+    pushes = [
+        _created(_tip(repo)),
+        _pushed(_NON_ADMIN, 'e' * 40, 'f' * 40),
+        _created('e' * 40),
+    ]
+    result, outputs, looked_up = _provenance(tmp_path, repo, pushes=pushes)
+    assert result.returncode == 0, result.stderr
+    assert outputs['trusted'] == 'true', result.stdout
+    assert looked_up == []
+
+
+def test_a_push_history_that_does_not_reach_the_head_holds(tmp_path: Path) -> None:
+    """A history whose newest push is not the head is read again, then holds."""
+    repo = _dependabot_branch(tmp_path)
+    pushes = [_created(_git(repo, 'rev-parse', 'main'))]
+    result, outputs, _ = _provenance(tmp_path, repo, pushes=pushes)
+    assert result.returncode == 0, result.stderr
+    assert outputs == {'trusted': 'false'}
+    assert "the branch's push history does not reach its head; holding." in (
+        result.stdout
+    )
+    assert (tmp_path / 'sleeps').read_text(encoding='utf-8').split() == ['5', '5']
+
+
+def test_a_push_history_that_does_not_reach_the_creation_holds(
+    tmp_path: Path,
+) -> None:
+    """A history with no branch creation may be missing the pushes that matter."""
+    repo = _dependabot_branch(tmp_path)
+    pushes = [_pushed('dependabot[bot]', 'e' * 40, _tip(repo))]
+    result, outputs, _ = _provenance(tmp_path, repo, pushes=pushes)
+    assert result.returncode == 0, result.stderr
+    assert outputs == {'trusted': 'false'}
+    assert "the branch's push history does not reach its creation;" in result.stdout
+
+
+def test_a_head_this_event_did_not_bring_holds(tmp_path: Path) -> None:
+    """A run vouches only for its own event's head, never for a later push's."""
+    repo = _dependabot_branch(tmp_path)
+    result, outputs, _ = _provenance(
+        tmp_path, repo, event_head=_git(repo, 'rev-parse', 'main')
+    )
+    assert result.returncode == 0, result.stderr
+    assert outputs == {'trusted': 'false'}
+    assert 'the head is no longer the one this event brought; holding.' in (
+        result.stdout
+    )
+
+
+def _rewritten_branch(tmp_path: Path) -> tuple[Path, list[str]]:
+    """Return a Dependabot branch rewritten after a push, and its push history.
+
+    The newest record, the rewrite, names no pusher yet: callers format it in.
+    """
+    repo = _dependabot_branch(tmp_path)
+    created = _tip(repo)
+    _write(repo, 'c.txt', 'c, before the rewrite')
+    _git(repo, 'commit', '-qam', 'build: bump c')
+    replaced = _tip(repo)
+    # Kept by a ref, as GitHub keeps a commit a force push replaced.
+    _git(repo, 'update-ref', 'refs/keep/replaced', replaced)
+    _git(repo, 'reset', '-q', '--hard', 'HEAD~1')
+    _write(repo, 'c.txt', 'c, after the rewrite')
+    _git(repo, 'commit', '-qam', 'build: bump c again')
+    return repo, [
+        _pushed('{pusher}', replaced, _tip(repo), change='force_push'),
+        _pushed('dependabot[bot]', created, replaced),
+        _created(created),
+    ]
+
+
+def test_a_rewrite_pushed_by_anyone_but_dependabot_or_an_admin_holds(
+    tmp_path: Path,
+) -> None:
+    """A force push by such a pusher holds when it adds a plain commit."""
+    repo, pushes = _rewritten_branch(tmp_path)
+    pushes[0] = pushes[0].format(pusher=_NON_ADMIN)
+    result, outputs, _ = _provenance(tmp_path, repo, pushes=pushes)
+    assert result.returncode == 0, result.stderr
+    assert outputs == {'trusted': 'false'}
+    assert f'{_NON_ADMIN} pushed {_tip(repo)}, which is not a clean merge' in (
+        result.stdout
+    )
+
+
+@pytest.mark.parametrize('pusher', ['dependabot[bot]', _ADMIN])
+def test_a_rewrite_pushed_by_dependabot_or_an_admin_keeps_it_trusted(
+    tmp_path: Path, pusher: str
+) -> None:
+    """Dependabot rebases its own branches, so its force pushes pass, as admins' do."""
+    repo, pushes = _rewritten_branch(tmp_path)
+    pushes[0] = pushes[0].format(pusher=pusher)
+    result, outputs, _ = _provenance(tmp_path, repo, pushes=pushes)
+    assert result.returncode == 0, result.stderr
+    assert outputs['trusted'] == 'true', result.stdout
 
 
 def test_the_kill_switch_reaches_every_pull_request() -> None:
