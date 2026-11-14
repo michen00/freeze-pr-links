@@ -1,51 +1,46 @@
 ---
 version: 2
+# Version updates only: a security update still opens a pull request of its own.
+multi-ecosystem-groups:
+  deps:
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore
+      include: scope
+# Each entry takes its schedule and version-update commit message from the group
+# above. A grouped entry cannot set `commit-message`, so its security updates take
+# the commit style Dependabot detects in this repository.
 updates:
   - package-ecosystem: uv
     directory: /
-    schedule:
-      interval: daily
-    groups:
-      uv-major:
-        update-types: [major]
-      uv-minor-patch:
-        update-types: [minor, patch]
-    commit-message:
-      prefix: chore
+    patterns: ['*']
+    multi-ecosystem-group: deps
     cooldown:
       default-days: 7
   - package-ecosystem: pre-commit
     directory: /
-    schedule:
-      interval: weekly
-    groups:
-      pre-commit:
-        patterns: ['*']
-    commit-message:
-      prefix: chore
+    patterns: ['*']
+    multi-ecosystem-group: deps
     cooldown:
       default-days: 7
   - package-ecosystem: github-actions
     directories:
       - /
       - /.github/actions/*
-    schedule:
-      interval: weekly
-    groups:
-      actions:
-        patterns: ['*']
+    patterns: ['*']
+    multi-ecosystem-group: deps
     ignore:
       # changelog-autoupdate.yml floats this on the major on purpose:
       # install-action resolves an unversioned tool from manifests baked into
       # its own release, so pinning the action pins git-cliff with it.
       - dependency-name: taiki-e/install-action
-    commit-message:
-      prefix: chore
     cooldown:
       # default-days only. GitHub rejects the semver-* keys for this ecosystem --
       # "not supported for the package ecosystem 'github-actions'" -- and an
       # invalid key here does not degrade gracefully: it invalidates the file and
-      # drops this whole entry, grouping and ignore rules included. The
+      # drops this whole entry, group membership and ignore rules included. The
       # check-dependabot schema hook does not catch it, because the rejection is
       # server-side rather than schematic.
       #
