@@ -9,7 +9,9 @@ multi-ecosystem-groups:
     commit-message:
       prefix: chore
       include: scope
-# Each entry takes its schedule and commit message from the group above.
+# Each entry takes its schedule and version-update commit message from the group
+# above. A grouped entry cannot set `commit-message`, so its security updates take
+# the commit style Dependabot detects in this repository.
 updates:
   - package-ecosystem: uv
     directory: /
