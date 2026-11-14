@@ -32,13 +32,12 @@ for artifact in "$artifacts_dir"/*; do
   fi
 
   case "$artifact" in
-    *.asc | *.sig | *.pem) continue ;;
+    *.asc | *.sigstore.json) continue ;;
   esac
 
   echo "Signing $(basename "$artifact") with Sigstore..."
   cosign sign-blob --yes \
-    --output-signature "$artifact.sig" \
-    --output-certificate "$artifact.pem" \
+    --bundle "$artifact.sigstore.json" \
     "$artifact"
 
   echo "Signing $(basename "$artifact") with GPG..."
@@ -80,9 +79,9 @@ for artifact in "$artifacts_dir"/*; do
   fi
 
   case "$artifact" in
-    *.asc | *.sig | *.pem) continue ;;
+    *.asc | *.sigstore.json) continue ;;
   esac
 
-  echo " - cosign verify-blob --signature \"$artifact.sig\" --certificate \"$artifact.pem\" --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-identity-regexp 'https://github.com/.+' \"$artifact\""
+  echo " - cosign verify-blob --bundle \"$artifact.sigstore.json\" --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-identity-regexp 'https://github.com/.+' \"$artifact\""
   echo " - gpg --verify \"$artifact.asc\" \"$artifact\""
 done
