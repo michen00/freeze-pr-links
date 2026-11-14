@@ -372,3 +372,22 @@ jobs:
           fi
           GH_TOKEN="$ARM_TOKEN" gh pr merge --auto --squash \
             --match-head-commit "$VERIFIED_HEAD" "$PR_NUMBER"
+
+      # Turns off what an earlier run armed when this run errored, did not trust the head,
+      # or found CI not required. A hold for eligibility leaves it: a person may have armed
+      # the update.
+      - name: Disarm auto-merge unless this run vouched for the head
+        if: >-
+          always() &&
+          (steps.provenance.outputs.trusted != 'true' ||
+           steps.gate.outputs.required == 'false')
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: |
+          set -euo pipefail
+          armed=$(gh pr view "$PR_NUMBER" --json autoMergeRequest \
+            --jq '.autoMergeRequest != null')
+          if [ "$armed" = true ]; then
+            gh pr merge --disable-auto "$PR_NUMBER"
+            echo "::warning::auto-merge disarmed: this run did not vouch for the head."
+          fi
