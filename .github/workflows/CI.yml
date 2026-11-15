@@ -24,14 +24,6 @@ env:
   # context cannot be built from an expression.
   PYTHON_VERSION: '3.13'
 
-# A note on `astral-sh/setup-uv` below, which is pinned to an exact release where
-# most actions here float on their major: upstream stopped publishing
-# rolling major tags after v7. No later major has a rolling ref, so a `@v10` pin
-# does not resolve and a `@v7` pin is frozen for good -- Dependabot cannot
-# advance it, because the tag it would advance to does not exist. Pinning the
-# exact release is the only way to stay current; the cost is that each setup-uv
-# release raises its own Dependabot pull request, grouped with the other actions.
-#
 # Each job's uv cache entry carries its job id (`cache-suffix`). The jobs install
 # different dependency groups, and an entry under a key that already exists is never
 # saved again, so with one key shared between them only the first job to finish would
