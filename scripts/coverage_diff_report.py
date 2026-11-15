@@ -159,7 +159,7 @@ def _line_runs(lines: list[int]) -> list[tuple[int, int]]:
     runs: list[tuple[int, int]] = []
     for line in lines:
         if runs and line == runs[-1][1] + 1:
-            runs[-1] = (runs[-1][0], line)
+            runs[-1] = runs[-1][0], line
         else:
             runs.append((line, line))
     return runs
