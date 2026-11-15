@@ -14,7 +14,6 @@ updates:
       prefix: chore
     cooldown:
       default-days: 7
-      semver-major-days: 30
   - package-ecosystem: pre-commit
     directory: /
     schedule:
@@ -31,8 +30,7 @@ updates:
       - /
       - /.github/actions/*
     schedule:
-      interval: cron
-      cronjob: '0 0 1,15 * *' # 1st and 15th monthly at midnight UTC
+      interval: weekly
     groups:
       actions:
         patterns: ['*']
@@ -55,4 +53,4 @@ updates:
       # major when the risk is a compromised publisher rather than a changed
       # interface, and these packages execute with this repository's own token
       # inside jobs holding write scopes.
-      default-days: 30
+      default-days: 7
