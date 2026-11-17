@@ -41,8 +41,7 @@ __all__ = [
 _HUNK_RE = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@')
 _NEW_FILE_RE = re.compile(r'^\+\+\+ b/(.+)$')
 
-# Ranked repository-wide files beyond this many are not worth a reader's scroll;
-# identical to grilling-station's own cutoff, kept here rather than rediscovered.
+# Ranked repository-wide files beyond this many are not worth a reader's scroll.
 _WORST_FILE_COUNT = 12
 
 # A changed file with this extension executes even when coverage.py never measured
