@@ -41,8 +41,7 @@ __all__ = [
 _HUNK_RE = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@')
 _NEW_FILE_RE = re.compile(r'^\+\+\+ b/(.+)$')
 
-# Ranked repository-wide files beyond this many are not worth a reader's scroll;
-# identical to grilling-station's own cutoff, kept here rather than rediscovered.
+# Ranked repository-wide files beyond this many are not worth a reader's scroll.
 _WORST_FILE_COUNT = 12
 
 # A changed file with this extension executes even when coverage.py never measured
@@ -159,7 +158,7 @@ def _line_runs(lines: list[int]) -> list[tuple[int, int]]:
     runs: list[tuple[int, int]] = []
     for line in lines:
         if runs and line == runs[-1][1] + 1:
-            runs[-1] = (runs[-1][0], line)
+            runs[-1] = runs[-1][0], line
         else:
             runs.append((line, line))
     return runs

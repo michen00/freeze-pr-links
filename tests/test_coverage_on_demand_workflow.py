@@ -63,8 +63,7 @@ def test_the_gate_expression_parses_as_one_line() -> None:
     """A folded scalar with a misindented continuation silently becomes multi-line.
 
     actionlint and GitHub both tolerate that, so a YAML-level check is the
-    only thing that catches it -- the exact trap grilling-station's own
-    coverage.yml (PR #369) hit and pinned a test against.
+    only thing that catches it.
     """
     assert '\n' not in _RESOLVE['if']
 

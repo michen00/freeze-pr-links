@@ -1,48 +1,53 @@
 ---
 version: 2
+# Version updates only: a security update still opens a pull request of its own.
+multi-ecosystem-groups:
+  deps:
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore
+      include: scope
+# The uv and pre-commit entries take their schedule and version-update commit
+# message from the group above. A grouped entry cannot set `commit-message`, so
+# their security updates take the commit style Dependabot detects in this
+# repository. ruff is pinned in both ecosystems, so a ruff release moves both pins
+# in the same pull request.
 updates:
   - package-ecosystem: uv
     directory: /
-    schedule:
-      interval: daily
-    groups:
-      uv-major:
-        update-types: [major]
-      uv-minor-patch:
-        update-types: [minor, patch]
-    commit-message:
-      prefix: chore
+    patterns: ['*']
+    multi-ecosystem-group: deps
     cooldown:
       default-days: 7
-      semver-major-days: 30
   - package-ecosystem: pre-commit
     directory: /
-    schedule:
-      interval: weekly
-    groups:
-      pre-commit:
-        patterns: ['*']
-    commit-message:
-      prefix: chore
+    patterns: ['*']
+    multi-ecosystem-group: deps
     cooldown:
       default-days: 7
+  # Not in the `deps` group: actions run in jobs that hold write scopes, and
+  # action.yml's pins run in every consumer's workflow, so they get a pull
+  # request of their own that a failing tool update cannot hold.
   - package-ecosystem: github-actions
     directories:
       - /
       - /.github/actions/*
     schedule:
-      interval: cron
-      cronjob: '0 0 1,15 * *' # 1st and 15th monthly at midnight UTC
+      interval: weekly
+      day: monday
     groups:
       actions:
         patterns: ['*']
+    commit-message:
+      prefix: chore
+      include: scope
     ignore:
       # changelog-autoupdate.yml floats this on the major on purpose:
       # install-action resolves an unversioned tool from manifests baked into
       # its own release, so pinning the action pins git-cliff with it.
       - dependency-name: taiki-e/install-action
-    commit-message:
-      prefix: chore
     cooldown:
       # default-days only. GitHub rejects the semver-* keys for this ecosystem --
       # "not supported for the package ecosystem 'github-actions'" -- and an
@@ -55,4 +60,4 @@ updates:
       # major when the risk is a compromised publisher rather than a changed
       # interface, and these packages execute with this repository's own token
       # inside jobs holding write scopes.
-      default-days: 30
+      default-days: 7
