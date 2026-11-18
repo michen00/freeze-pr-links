@@ -1,10 +1,8 @@
 ---
 name: Bot auto-merge
 
-# Approves eligible Dependabot pull requests and arms native auto-merge (squash) on them.
-#
-# No check polling: `gh pr checks --required --watch` fails when it runs before CI has
-# registered its checks, and auto-merge waits for required checks anyway.
+# Approves eligible Dependabot pull requests and arms squash auto-merge on them.
+# Auto-merge waits for required checks, so nothing here polls them.
 
 on:
   pull_request:
@@ -20,8 +18,7 @@ concurrency:
 
 jobs:
   bot-automerge:
-    # The guard reads `pull_request.user.login`, not `github.actor`: the actor is whoever
-    # caused this event, so a later push by anyone else would skip the job.
+    # The author, not `github.actor`: a catch-up push makes its pusher the actor.
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.user.login == 'dependabot[bot]' &&
@@ -32,10 +29,8 @@ jobs:
       GH_REPO: ${{ github.repository }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
     steps:
-      # Optional App identity for arming: auto-merge completes as whoever armed it, and a
-      # merge under `GITHUB_TOKEN` starts no workflows, so pr-catchup.yml would not run.
-      # Dependabot-triggered runs read only the Dependabot secret store, so the key must be
-      # in both stores.
+      # Auto-merge completes as whoever armed it, and a merge as `GITHUB_TOKEN` triggers
+      # no workflows, hence the App. Dependabot's runs read only Dependabot secrets.
       - name: Detect App credentials
         id: creds
         env:
@@ -62,7 +57,7 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
 
-      # `continue-on-error` records a failed mint as a success, so report it here.
+      # `continue-on-error` hides a failed mint.
       - name: Report a mint that failed
         if: >-
           steps.creds.outputs.available == 'true' &&
@@ -82,8 +77,8 @@ jobs:
         run: |
           echo "::notice::No update-type for ${ECOSYSTEM:-unknown}; leaving this for a human."
 
-      # The default branch, never the pull request's head, so nothing from the pull
-      # request runs. The next step fetches its commits as objects for `git merge-tree`.
+      # Never the head, so nothing from the pull request runs. The next step fetches the
+      # head's commits as objects only.
       - name: Check out the default branch's history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -206,9 +201,8 @@ jobs:
               rejected=$((rejected + 1))
             fi
           done <<< "$rows"
-          # Every push since the branch was last created, newest first, as GitHub
-          # records it. A held push's commits stay in the branch, so the push that
-          # started this run cannot vouch for the branch alone.
+          # A held push's commits stay in the branch, so the push that started this run
+          # cannot vouch for the branch alone.
           for attempt in 1 2 3; do
             pushes=$(gh api -X GET "repos/${GH_REPO}/activity" -f ref="refs/heads/${HEAD_REF}" \
               -f direction=desc -F per_page=100 --paginate \
@@ -232,7 +226,6 @@ jobs:
           expected=$head
           while IFS='|' read -r change pusher before after; do
             [ -z "$change" ] && continue
-            # Each record must end where the next newer one began, or a change is missing.
             if [ "$after" != "$expected" ]; then
               echo "::warning::the branch's push history skips a change; holding."
               rejected=$((rejected + 1))
@@ -302,8 +295,6 @@ jobs:
               echo "should_merge=true" >>"$GITHUB_OUTPUT"
               ;;
             version-update:semver-major)
-              # CI exercises only code a pull request runs, so a major used only by a
-              # workflow that no pull request starts merges untested.
               echo "::notice::${ECOSYSTEM:-unknown} major; eligible on green CI."
               echo "should_merge=true" >>"$GITHUB_OUTPUT"
               ;;
@@ -313,9 +304,7 @@ jobs:
               ;;
           esac
 
-      # Arm only while a ruleset requires the context CI's run-ci job reports, so a renamed
-      # job or a context dropped from the ruleset holds bot pull requests rather than
-      # letting them merge without CI. tests/test_workflows.py pins CONTEXT to CI.yml.
+      # Auto-merge waits only for required checks.
       - name: Check that the base branch requires CI
         id: gate
         if: steps.eligible.outputs.should_merge == 'true'
