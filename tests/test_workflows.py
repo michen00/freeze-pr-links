@@ -131,6 +131,121 @@ def test_auto_merge_approves_and_arms_only_the_verified_head() -> None:
     ) in script
 
 
+def test_a_run_that_does_not_vouch_for_the_head_disarms_auto_merge() -> None:
+    """The last step turns auto-merge off whenever this run did not trust the head.
+
+    It runs on `always()`, so a run that failed before its verdict disarms too, and on a
+    gate that found CI no longer required. It does not run on eligibility alone, so it
+    leaves a held update that a person armed by hand.
+    """
+    disarm = _load('bot-automerge.yml')['jobs']['bot-automerge']['steps'][-1]
+    assert disarm['name'] == 'Disarm auto-merge unless this run vouched for the head'
+    condition = ' '.join(disarm['if'].split())
+    assert condition == (
+        "always() && (steps.provenance.outputs.trusted != 'true' || "
+        "steps.gate.outputs.required == 'false')"
+    )
+    assert 'eligible' not in condition
+    script = ' '.join(disarm['run'].replace('\\\n', ' ').split())
+    assert 'gh pr view "$PR_NUMBER" --json autoMergeRequest' in script
+    assert 'gh pr merge --disable-auto "$PR_NUMBER"' in script
+    assert disarm['env']['GH_TOKEN'] == (
+        '${{ steps.app-token.outputs.token || github.token }}'
+    )
+
+
+def _disarm(
+    tmp_path: Path, view: str | None, *, merge_status: int = 0
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """Run the disarm step as pull request 7 against a stub `gh`.
+
+    The stub answers `gh pr view` by running the step's own `--jq` filter over ``view``
+    with jq, so the test exercises the filter, and fails that read when ``view`` is
+    None. It answers `gh pr merge` with the exit status ``merge_status``.
+
+    Returns the finished step and the gh calls it made.
+    """
+    step = _steps(_load('bot-automerge.yml'), 'bot-automerge')[
+        'Disarm auto-merge unless this run vouched for the head'
+    ]
+    stub_dir = tmp_path / 'bin'
+    stub_dir.mkdir()
+    stub = stub_dir / 'gh'
+    stub.write_text(
+        '#!/usr/bin/env bash\n'
+        'echo "$*" >>"$GH_LOG"\n'
+        'case "$1 $2" in\n'
+        '  "pr view")\n'
+        '    if [ -z "$FAKE_VIEW" ]; then\n'
+        '      echo "gh: Server Error (HTTP 502)" >&2; exit 1\n'
+        '    fi\n'
+        '    while [ "$#" -gt 0 ] && [ "$1" != --jq ]; do shift; done\n'
+        '    jq -r "$2" <<<"$FAKE_VIEW" ;;\n'
+        '  "pr merge") exit "$FAKE_MERGE_STATUS" ;;\n'
+        '  *) echo "fake gh: unexpected call: $*" >&2; exit 64 ;;\n'
+        'esac\n',
+        encoding='utf-8',
+    )
+    stub.chmod(0o755)
+    log = tmp_path / 'gh.log'
+    log.touch()
+    result = subprocess.run(
+        ['bash', '-e', '-c', step['run']],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            'PATH': f'{stub_dir}{os.pathsep}{os.environ["PATH"]}',
+            'GH_REPO': 'michen00/freeze-pr-links',
+            'PR_NUMBER': '7',
+            'GH_LOG': str(log),
+            'FAKE_VIEW': view or '',
+            'FAKE_MERGE_STATUS': str(merge_status),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result, log.read_text(encoding='utf-8').splitlines()
+
+
+_ARMED = '{"autoMergeRequest": {"mergeMethod": "SQUASH"}}'
+_DISABLE = 'pr merge --disable-auto 7'
+
+
+@pytest.mark.parametrize(
+    ('view', 'merges'),
+    [(_ARMED, [_DISABLE]), ('{"autoMergeRequest": null}', [])],
+    ids=['armed', 'not-armed'],
+)
+def test_the_disarm_step_turns_off_only_auto_merge_that_is_on(
+    tmp_path: Path, view: str, merges: list[str]
+) -> None:
+    """The step turns auto-merge off where it is on, and warns that it did."""
+    result, calls = _disarm(tmp_path, view)
+
+    assert result.returncode == 0, result.stderr
+    assert [call for call in calls if call.startswith('pr merge')] == merges
+    assert ('::warning::auto-merge disarmed' in result.stdout) == bool(merges)
+
+
+@pytest.mark.parametrize(
+    ('view', 'merge_status', 'merges'),
+    [(None, 0, []), (_ARMED, 1, [_DISABLE])],
+    ids=['read-fails', 'disarm-refused'],
+)
+def test_a_disarm_step_that_cannot_read_or_disarm_fails(
+    tmp_path: Path, view: str | None, merge_status: int, merges: list[str]
+) -> None:
+    """A read that fails, or a disarm GitHub refuses, fails the step.
+
+    An earlier arming may still be on, and the failed job is what shows it.
+    """
+    result, calls = _disarm(tmp_path, view, merge_status=merge_status)
+
+    assert result.returncode != 0
+    assert [call for call in calls if call.startswith('pr merge')] == merges
+
+
 def _git(repo: Path, *args: str, author: str = 'dependabot[bot]') -> str:
     """Run git in ``repo`` as ``author``, committed by GitHub, with no global config."""
     # GIT_* variables a hook runner sets would point git at this repository instead.
