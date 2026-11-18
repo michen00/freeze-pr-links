@@ -24,14 +24,14 @@ name: Coverage on demand
 # people with write access, which is the same bar the comment-author check
 # enforces by hand for the other trigger.
 #
-# Split into three jobs rather than grilling-station's single one, and the
-# split is not cosmetic: `measure` checks out the pull request's own head to
-# run its tests, under `contents: read` and nothing else, while `comment` is
-# the one job holding `pull-requests: write` and never checks out anything
-# but this workflow's own script from the default branch. Folding the two
-# together -- as ci.yml deliberately does NOT for the same reason -- would run
-# pull-request-authored code beside a token that can write to the
-# conversation. `resolve` needs no code at all, only the GitHub API.
+# Split into three jobs, and the split is not cosmetic: `measure` checks out
+# the pull request's own head to run its tests, under `contents: read` and
+# nothing else, while `comment` is the one job holding `pull-requests: write`
+# and never checks out anything but this workflow's own script from the
+# default branch. Folding the two together -- as ci.yml deliberately does NOT
+# for the same reason -- would run pull-request-authored code beside a token
+# that can write to the conversation. `resolve` needs no code at all, only the
+# GitHub API.
 #
 # `workflow_dispatch` and `issue_comment` are both repository-level events, so
 # every job here always runs the copy of this file on the default branch,
