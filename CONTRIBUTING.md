@@ -24,7 +24,7 @@ make develop   # sync dependencies and install the git hooks
 make check   # tidy, run the pre-commit hooks, then the tests
 ```
 
-The checks under [checks/](checks/) run the same PR-title, PR-body and commit-subject validation that CI runs. For example: `uv run python -m checks.check_pr_title "feat: add a rule"`. On a pull request, CI posts what they find as a comment. CI also comments with how many of the lines you changed a test ran; a member or collaborator can comment `/coverage-report` on the pull request to measure it again.
+The commit-subject check under [checks/](checks/) runs the same validation CI runs: `uv run python -m checks.check_commit_messages`. CI checks the PR title and body with [michen00/pr-checks](https://github.com/michen00/pr-checks), and posts what the checks find as a comment on the pull request. CI also comments with how many of the lines you changed a test ran; a member or collaborator can comment `/coverage-report` on the pull request to measure it again.
 
 Write Markdown prose as one line per paragraph. The `unwrap-markdown-prose-py` hook reflows a hard-wrapped paragraph in place and stops the commit so you can see what changed.
 

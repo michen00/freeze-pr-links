@@ -130,11 +130,10 @@ class Findings:
 
         pr-mechanical-checks.yml names one file per check, under PR_WARNINGS_FILE and
         PR_ERRORS_FILE, and hands them to pr-advisory-comment.yml, which posts them on
-        the pull request; its gate step also folds the errors into its own failure
-        message. Without the variable -- every local run -- nothing is written, and a
-        check with nothing to report writes no file. The log `_publish` writes is the
-        durable record, so a failed write is reported as a warning, never raised: it
-        must not turn a clean check red.
+        the pull request. Without the variable -- every local run -- nothing is
+        written, and a check with nothing to report writes no file. The log `_publish`
+        writes is the durable record, so a failed write is reported as a warning, never
+        raised: it must not turn a clean check red.
         """
         target = os.environ.get(env_var, '').strip()
         if not target or not items:

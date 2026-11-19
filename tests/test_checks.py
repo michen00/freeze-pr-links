@@ -1,4 +1,4 @@
-"""Tests for the commit-subject and pull-request-title checks in checks/.
+"""Tests for the commit-subject check in checks/.
 
 Each test pins which findings one input produces: errors block and warnings advise.
 """
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from checks import check_commit_messages, check_pr_title
+from checks import check_commit_messages
 from checks._common import (
     SUBJECT_MAX_DEFAULT,
     Findings,
@@ -258,33 +258,9 @@ def test_the_commit_check_reports_a_bad_range(
     assert check_commit_messages.main(['no-such-ref..HEAD']) == 2
 
 
-@pytest.mark.parametrize(
-    ('title', 'code'),
-    [('feat: add the RTK notebook', 0), ('add the RTK notebook', 1)],
-)
-def test_the_title_check_exits_by_validity(title: str, code: int) -> None:
-    """The title check exits 0 for a valid title and 1 for an invalid one."""
-    assert check_pr_title.main([title]) == code
-
-
-def test_the_title_check_reads_the_environment(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """PR_TITLE supplies the title, which is measured as typed."""
-    monkeypatch.delenv('GITHUB_ACTIONS', raising=False)
-    monkeypatch.setenv('PR_TITLE', _subject_of_length(50))
-    # A number in the environment is not read: the `" (#123)"` a squash merge appends is
-    # GitHub's, so a title at the maximum passes with nothing to report.
-    monkeypatch.setenv('PR_NUMBER', '100')
-    assert check_pr_title.main([]) == 0
-    assert capsys.readouterr() == ('title OK\n', '')
-
-
-def test_both_checks_take_a_maximum() -> None:
-    """The flag reaches the title check and every commit in the range."""
+def test_the_maximum_reaches_every_commit() -> None:
+    """The maximum applies to every commit in the range."""
     title = _subject_of_length(60)
-    assert check_pr_title.main([title]) == 1
-    assert check_pr_title.main([title, '--max-length', '72']) == 0
     rows = [('3' * 40, 'Michael I Chen', title), ('4' * 40, 'Michael I Chen', title)]
     assert len(check_commits(rows).errors) == 2
     assert check_commits(rows, max_length=72).ok
@@ -294,10 +270,12 @@ def test_both_checks_take_a_maximum() -> None:
 def test_off_on_the_command_line_says_so(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """`--max-length off` passes a long title, and the log says so."""
+    """`--max-length off` passes a long subject, and the log says so."""
     monkeypatch.delenv('GITHUB_ACTIONS', raising=False)
-    assert check_pr_title.main([_subject_of_length(60), '--max-length', 'off']) == 0
-    assert capsys.readouterr() == ('title OK, length not checked\n', '')
+    rows = [('3' * 40, 'Michael I Chen', _subject_of_length(60))]
+    monkeypatch.setattr(check_commit_messages, '_commit_rows', lambda _range: rows)
+    assert check_commit_messages.main(['--max-length', 'off']) == 0
+    assert capsys.readouterr() == ('1 commit subject(s) OK, length not checked\n', '')
 
 
 @pytest.mark.parametrize('setting', ['0', '-3', 'sixty'])
@@ -306,18 +284,11 @@ def test_an_unusable_flag_is_a_usage_error(
 ) -> None:
     """A bad `--max-length` stops with a usage error that names the flag."""
     with pytest.raises(SystemExit) as stopped:
-        check_pr_title.main(['docs: fix a typo', '--max-length', setting])
+        check_commit_messages.main(['--max-length', setting])
     assert stopped.value.code == 2
     assert 'argument --max-length: expected a positive whole number or off' in (
         capsys.readouterr().err
     )
-
-
-def test_the_title_check_needs_a_title(monkeypatch: pytest.MonkeyPatch) -> None:
-    """With no argument and no PR_TITLE the title check stops with a usage error."""
-    monkeypatch.delenv('PR_TITLE', raising=False)
-    with pytest.raises(SystemExit):
-        check_pr_title.main([])
 
 
 def test_a_warning_becomes_an_annotation_under_actions(

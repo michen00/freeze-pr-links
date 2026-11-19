@@ -11,13 +11,10 @@ name: PR mechanical checks
 # hooks installed, so it never sees the pull request title -- which, under squash merge,
 # is the subject that lands on the default branch with " (#N)" appended.
 #
-# Bot-authored pull requests are exempt from the title and body checks, because
-# tool-generated titles and bodies keep their own format. The commit-subject check runs
-# for everyone; it already skips bot-authored commits from the inside.
-#
-# The findings, errors and warnings both, travel as an artifact to
-# pr-advisory-comment.yml, which posts them on the pull request, so a red job says why
-# on the conversation rather than only in this log.
+# michen00/pr-checks checks the title and body, and skips a bot-authored pull request.
+# The commit-subject check runs for everyone; it skips bot-authored commits from the
+# inside. The findings, errors and warnings both, travel as an artifact to
+# pr-advisory-comment.yml, which posts them on the pull request.
 
 on:
   pull_request:
@@ -56,128 +53,43 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      # The checks are pure standard library, so a bare interpreter is all they need.
-      # Deliberately NOT `uv sync`: resolving the pull request's own dependency
-      # metadata to run the gate that judges it is work with a downside and no upside.
+      # The commit-subject check is pure standard library, so a bare interpreter is all
+      # it needs. Deliberately NOT `uv sync`: resolving the pull request's own
+      # dependency metadata to run the gate that judges it is work with a downside and
+      # no upside.
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.13'
-      - name: Check PR title
-        id: title
-        continue-on-error: true
-        if: ${{ !endsWith(github.event.pull_request.user.login, '[bot]') }}
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          # checks/_common.py's Findings.emit appends each finding to these files. The
-          # file names become the comment's group headings.
-          PR_WARNINGS_FILE: ${{ runner.temp }}/pr-findings/warnings/title.txt
-          PR_ERRORS_FILE: ${{ runner.temp }}/pr-findings/errors/title.txt
-        run: python -m checks.check_pr_title
+      # Runs before pr-checks, which uploads the pr-checks-findings folder for the
+      # comment. The folder is pr-checks' own at the pinned version, not an input.
       - name: Check commit subjects
         id: commits
         continue-on-error: true
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
-          PR_WARNINGS_FILE: ${{ runner.temp }}/pr-findings/warnings/commit-subjects.txt
-          PR_ERRORS_FILE: ${{ runner.temp }}/pr-findings/errors/commit-subjects.txt
+          PR_WARNINGS_FILE: ${{ runner.temp }}/pr-checks-findings/warnings/commit-subjects.txt
+          PR_ERRORS_FILE: ${{ runner.temp }}/pr-checks-findings/errors/commit-subjects.txt
         run: |
           git fetch --quiet origin "$BASE_REF"
           python -m checks.check_commit_messages "origin/${BASE_REF}..HEAD"
-      - name: Check PR body
-        id: body
+      - name: Check the title and body
+        id: pr
         continue-on-error: true
-        if: ${{ !endsWith(github.event.pull_request.user.login, '[bot]') }}
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-          PR_WARNINGS_FILE: ${{ runner.temp }}/pr-findings/warnings/body.txt
-          PR_ERRORS_FILE: ${{ runner.temp }}/pr-findings/errors/body.txt
-        run: printf '%s' "$PR_BODY" | python -m checks.check_pr_body
-      # The artifact carries findings and nothing else. It deliberately does not carry
-      # the pull request number: a fork's pull_request run supplies this workflow's own
-      # definition, so a fork could stage any number it liked and have the
-      # default-branch workflow post onto another pull request. The commenting workflow
-      # resolves the number from the API instead, against the head SHA GitHub recorded.
-      #
-      # Always uploaded, including when there is nothing to say: an empty artifact is
-      # what tells the commenting workflow to delete a comment an earlier revision left.
-      # Staged first, so the upload has a directory to point at either way.
-      - name: Stage the findings for the commenting workflow
-        if: always() && !endsWith(github.event.pull_request.user.login, '[bot]')
-        env:
-          FINDINGS_DIR: ${{ runner.temp }}/pr-findings
-          STAGE: ${{ runner.temp }}/advisory
-        run: |
-          set -euo pipefail
-          mkdir -p "${STAGE}/warnings" "${STAGE}/errors"
-          printf 'findings for the PR comment; see pr-advisory-comment.yml\n' >"${STAGE}/README"
-          for kind in warnings errors; do
-            if [ -d "${FINDINGS_DIR}/${kind}" ]; then
-              cp -R "${FINDINGS_DIR}/${kind}/." "${STAGE}/${kind}/"
-            fi
-          done
-      - name: Upload the findings
-        if: always() && !endsWith(github.event.pull_request.user.login, '[bot]')
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        uses: michen00/pr-checks@db89b15bfdb59cf850f498b56d9e3aaba0b2c005 # v0.1.0
         with:
-          name: pr-advisory-findings
-          path: ${{ runner.temp }}/advisory
-          if-no-files-found: error
-          retention-days: 1
-      # continue-on-error above lets all three run; this is what makes the job red. Reading
-      # the outcomes through env: keeps the run block free of ${{ }} interpolation.
-      #
-      # Each outcome is measured against `success` rather than against `failure`.
-      # continue-on-error covers a check that ran and reported; it does nothing for one
-      # that never ran, and a step that never ran reports `skipped`. Comparing against
-      # `failure` alone would let this step announce a clean job for one whose checks
-      # had all been skipped by an earlier step's hard failure.
-      - name: Fail if any check did not pass
+          max-length: ${{ env.SUBJECT_MAX_LENGTH }}
+          required-sections: |
+            Summary
+            Testing
+          warn-plan-ids: 'true'
+      # Each outcome is measured against `success`, so a check that never ran, which
+      # reports `skipped`, fails the job too.
+      - name: Require both checks to pass
         if: always()
         env:
-          # A skip is only acceptable where a step is held back on purpose, so the gate
-          # needs the same author test that step uses. Repeated verbatim rather than
-          # restated: were the two to disagree, the symptom would be a red Dependabot
-          # pull request, or an accepted skip on a human's.
-          AUTHOR_IS_HUMAN: ${{ !endsWith(github.event.pull_request.user.login, '[bot]') }}
-          TITLE_OUTCOME: ${{ steps.title.outcome }}
-          COMMITS_OUTCOME: ${{ steps.commits.outcome }}
-          BODY_OUTCOME: ${{ steps.body.outcome }}
-          # Each must equal its check's own PR_ERRORS_FILE above;
-          # tests/test_pr_mechanical_checks_workflow.py pins the two to agree.
-          TITLE_ERRORS_FILE: ${{ runner.temp }}/pr-findings/errors/title.txt
-          COMMITS_ERRORS_FILE: ${{ runner.temp }}/pr-findings/errors/commit-subjects.txt
-          BODY_ERRORS_FILE: ${{ runner.temp }}/pr-findings/errors/body.txt
+          PR: ${{ steps.pr.outcome }}
+          COMMITS: ${{ steps.commits.outcome }}
         run: |
           set -euo pipefail
-          # `skipped` counts as a pass only for the title and body checks on a
-          # bot-authored pull request, where the if: above holds them back deliberately.
-          # The commit-subject check carries no such condition -- it skips bot-authored
-          # commits from the inside instead -- so a skip there always means it did not run.
-          #
-          # detail reads a check's recorded errors back in, so the message names the
-          # problem rather than a bare "title=failure". A check that passed or was skipped
-          # writes no file, so `[ -s ... ]` alone decides whether to print anything.
-          detail() {
-            if [ -s "$1" ]; then
-              printf ': %s' "$(awk 'NR>1{printf "; "} {printf "%s", $0}' "$1")"
-            fi
-          }
-          bad=""
-          if [ "$TITLE_OUTCOME" != success ]; then
-            if [ "$TITLE_OUTCOME" != skipped ] || [ "$AUTHOR_IS_HUMAN" = true ]; then
-              bad="$bad title=$TITLE_OUTCOME$(detail "$TITLE_ERRORS_FILE")"
-            fi
-          fi
-          if [ "$COMMITS_OUTCOME" != success ]; then
-            bad="$bad commit-subjects=$COMMITS_OUTCOME$(detail "$COMMITS_ERRORS_FILE")"
-          fi
-          if [ "$BODY_OUTCOME" != success ]; then
-            if [ "$BODY_OUTCOME" != skipped ] || [ "$AUTHOR_IS_HUMAN" = true ]; then
-              bad="$bad body=$BODY_OUTCOME$(detail "$BODY_ERRORS_FILE")"
-            fi
-          fi
-          if [ -n "$bad" ]; then
-            echo "::error::these checks did not pass:$bad"
-            exit 1
-          fi
-          echo "every check passed"
+          test "$PR" = success
+          test "$COMMITS" = success
