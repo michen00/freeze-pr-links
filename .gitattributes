@@ -11,12 +11,11 @@
 *.css           text diff=css
 *.htm           text diff=html
 *.html          text diff=html
-*.ipynb         text eol=lf diff=ipynb
+*.ini           text
 *.java          text diff=java
 *.js            text
 *.json          text
 *.jsp           text
-*.lock          text
 *.md            text diff=markdown
 *.php           text diff=php
 *.properties    text
@@ -29,8 +28,8 @@
 *.ts            text
 *.txt           text
 *.xml           text
-*.yaml          text
-*.yml           text
+*.yaml          text eol=lf
+*.yml           text eol=lf
 CODEOWNERS      text
 Dockerfile      text
 

@@ -36,6 +36,7 @@ jobs:
             - source: michen00/template
               default_files:
                 - .editorconfig
+                - .gitattributes
                 - .github/release.yml
                 - .markdownlint.yml
                 - .prettierignore
